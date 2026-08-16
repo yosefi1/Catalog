@@ -1,8 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { requireCatalogKey, setCors } from './_lib/auth';
-import { getServiceSupabase } from './_lib/supabase';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-export type SyncDevice = {
+type SyncDevice = {
   inventoryId: string;
   deviceName: string;
   manufacturer: string;
@@ -19,17 +18,15 @@ export type SyncDevice = {
   updatedAt: number;
 };
 
-export type SyncPhotoIn = {
+type SyncPhotoIn = {
   inventoryId: string;
   photoType: string;
   mimeType: string;
   createdAt: number;
-  /** base64 without data: prefix */
   dataBase64: string;
-  clientPhotoKey?: string;
 };
 
-export type SyncPhotoOut = {
+type SyncPhotoOut = {
   id: string;
   inventoryId: string;
   photoType: string;
@@ -37,6 +34,82 @@ export type SyncPhotoOut = {
   createdAt: number;
   storagePath: string;
 };
+
+function setCors(res: VercelResponse): void {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'Content-Type, X-Catalog-Key',
+  );
+}
+
+function requireCatalogKey(req: VercelRequest, res: VercelResponse, body: Record<string, unknown>): boolean {
+  const expected = process.env.CATALOG_ACCESS_KEY;
+  if (!expected) {
+    res.status(500).json({
+      error:
+        'Server missing CATALOG_ACCESS_KEY. Add it in Vercel → Settings → Environment Variables, then Redeploy.',
+    });
+    return false;
+  }
+
+  const provided =
+    (req.headers['x-catalog-key'] as string | undefined) ||
+    (typeof body.accessKey === 'string' ? body.accessKey : undefined);
+
+  if (!provided || provided !== expected) {
+    res.status(401).json({
+      error:
+        'Invalid sync key. Use the exact same CATALOG_ACCESS_KEY value from Vercel in Data → Cloud sync.',
+    });
+    return false;
+  }
+  return true;
+}
+
+function getServiceSupabase(): SupabaseClient {
+  const url = process.env.SUPABASE_URL?.trim();
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
+    process.env.SUPABASE_SECRET_KEY?.trim();
+
+  if (!url) {
+    throw new Error(
+      'Missing SUPABASE_URL in Vercel env. Example: https://xxxx.supabase.co',
+    );
+  }
+  if (!key) {
+    throw new Error(
+      'Missing SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_SECRET_KEY). Use Legacy service_role JWT or Secret keys sb_secret_…',
+    );
+  }
+  return createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
+function errMessage(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (e && typeof e === 'object') {
+    const o = e as { message?: string; error?: string; details?: string; hint?: string; code?: string };
+    return [o.message || o.error, o.details, o.hint, o.code].filter(Boolean).join(' | ') || JSON.stringify(e);
+  }
+  return String(e);
+}
+
+function parseBody(req: VercelRequest): Record<string, unknown> {
+  if (!req.body) return {};
+  if (typeof req.body === 'string') {
+    try {
+      return JSON.parse(req.body) as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  }
+  if (typeof req.body === 'object') return req.body as Record<string, unknown>;
+  return {};
+}
 
 function rowToDevice(row: Record<string, unknown>): SyncDevice {
   return {
@@ -93,20 +166,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  if (!requireCatalogKey(req, res)) return;
+  const body = parseBody(req);
 
-  let supabase;
+  if (!requireCatalogKey(req, res, body)) return;
+
+  let supabase: SupabaseClient;
   try {
     supabase = getServiceSupabase();
   } catch (e) {
-    res.status(500).json({
-      error: e instanceof Error ? e.message : 'Supabase config error',
-    });
+    res.status(500).json({ error: errMessage(e) });
     return;
   }
 
   try {
-    if (req.method === 'GET' || (req.method === 'POST' && req.body?.action === 'pull')) {
+    const action = body.action ?? (req.method === 'GET' ? 'pull' : undefined);
+
+    if (req.method === 'GET' || action === 'pull') {
       const { data: deviceRows, error: dErr } = await supabase
         .from('devices')
         .select('*')
@@ -134,10 +209,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    if (req.method === 'POST' && req.body?.action === 'push') {
-      const devices = (req.body.devices ?? []) as SyncDevice[];
-      const photos = (req.body.photos ?? []) as SyncPhotoIn[];
-      const replacePhotoInventoryIds = (req.body.replacePhotoInventoryIds ??
+    if (action === 'push') {
+      const devices = (body.devices ?? []) as SyncDevice[];
+      const photos = (body.photos ?? []) as SyncPhotoIn[];
+      const replacePhotoInventoryIds = (body.replacePhotoInventoryIds ??
         []) as string[];
 
       for (const d of devices) {
@@ -156,12 +231,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
         if (existing?.length) {
           const paths = existing.map((p) => p.storage_path as string);
-          await supabase.storage.from('device-photos').remove(paths);
+          if (paths.length) {
+            await supabase.storage.from('device-photos').remove(paths);
+          }
           await supabase.from('photos').delete().eq('inventory_id', inventoryId);
         }
       }
 
-      const uploaded: SyncPhotoOut[] = [];
+      let uploadedCount = 0;
       for (const photo of photos) {
         if (!photo?.inventoryId || !photo.dataBase64) continue;
         const ext = extFromMime(photo.mimeType || 'image/jpeg');
@@ -175,37 +252,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             contentType: photo.mimeType || 'image/jpeg',
             upsert: true,
           });
-        if (upErr) throw upErr;
+        if (upErr) {
+          throw new Error(
+            `Storage upload failed (${upErr.message}). Bucket must be named exactly "device-photos".`,
+          );
+        }
 
-        const { data: inserted, error: insErr } = await supabase
-          .from('photos')
-          .insert({
-            inventory_id: photo.inventoryId,
-            photo_type: photo.photoType,
-            storage_path: storagePath,
-            mime_type: photo.mimeType || 'image/jpeg',
-            created_at: photo.createdAt || Date.now(),
-          })
-          .select('*')
-          .single();
-        if (insErr) throw insErr;
-
-        uploaded.push({
-          id: String(inserted.id),
-          inventoryId: photo.inventoryId,
-          photoType: photo.photoType,
-          mimeType: photo.mimeType || 'image/jpeg',
-          createdAt: photo.createdAt || Date.now(),
-          storagePath,
+        const { error: insErr } = await supabase.from('photos').insert({
+          inventory_id: photo.inventoryId,
+          photo_type: photo.photoType,
+          storage_path: storagePath,
+          mime_type: photo.mimeType || 'image/jpeg',
+          created_at: photo.createdAt || Date.now(),
         });
+        if (insErr) throw insErr;
+        uploadedCount += 1;
       }
 
-      res.status(200).json({ ok: true, uploadedCount: uploaded.length });
+      res.status(200).json({ ok: true, uploadedCount });
       return;
     }
 
-    if (req.method === 'POST' && req.body?.action === 'downloadPhoto') {
-      const storagePath = String(req.body.storagePath ?? '');
+    if (action === 'downloadPhoto') {
+      const storagePath = String(body.storagePath ?? '');
       if (!storagePath) {
         res.status(400).json({ error: 'storagePath required' });
         return;
@@ -213,7 +282,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const { data, error } = await supabase.storage
         .from('device-photos')
         .download(storagePath);
-      if (error) throw error;
+      if (error) {
+        throw new Error(
+          `Storage download failed (${error.message}). Bucket must be named exactly "device-photos".`,
+        );
+      }
       const buf = Buffer.from(await data.arrayBuffer());
       res.status(200).json({
         storagePath,
@@ -223,11 +296,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    res.status(405).json({ error: 'Method not allowed' });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({
-      error: e instanceof Error ? e.message : 'Sync failed',
+    res.status(400).json({
+      error: `Unknown action. Got method=${req.method} action=${String(action)}`,
     });
+  } catch (e) {
+    console.error('sync error', e);
+    res.status(500).json({ error: errMessage(e) });
   }
 }

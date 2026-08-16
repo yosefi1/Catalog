@@ -72,7 +72,15 @@ async function callSync<T>(
     },
     body: JSON.stringify(body),
   });
-  const data = (await res.json().catch(() => ({}))) as T & { error?: string };
+  const text = await res.text();
+  let data: T & { error?: string };
+  try {
+    data = JSON.parse(text) as T & { error?: string };
+  } catch {
+    throw new Error(
+      `Sync HTTP ${res.status}: ${text.slice(0, 240) || '(empty response)'}`,
+    );
+  }
   if (!res.ok) {
     throw new Error(data.error || `Sync HTTP ${res.status}`);
   }
