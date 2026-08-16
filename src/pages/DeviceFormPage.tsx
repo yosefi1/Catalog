@@ -377,35 +377,6 @@ function DeviceFormEditor({
         )}
 
         {error && <p className="error-text">{error}</p>}
-
-        <div className="sticky-actions">
-          <button
-            type="button"
-            className="btn btn--primary btn--large"
-            disabled={saving}
-            onClick={() => void persist(false)}
-          >
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-          {isNew && (
-            <button
-              type="button"
-              className="btn btn--accent btn--large"
-              disabled={saving}
-              onClick={() => void persist(true)}
-            >
-              Save & Add Next
-            </button>
-          )}
-          <button
-            type="button"
-            className="btn btn--secondary btn--large"
-            disabled={saving}
-            onClick={() => void discard()}
-          >
-            Cancel
-          </button>
-        </div>
       </form>
 
       {!isNew && deviceId !== undefined && (
@@ -439,6 +410,35 @@ function DeviceFormEditor({
           )}
         </div>
       )}
+
+      <div className="sticky-actions" role="toolbar" aria-label="Device actions">
+        <button
+          type="button"
+          className="btn btn--secondary btn--large"
+          disabled={saving}
+          onClick={() => void discard()}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="btn btn--primary btn--large"
+          disabled={saving}
+          onClick={() => void persist(false)}
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        {isNew && (
+          <button
+            type="button"
+            className="btn btn--accent btn--large"
+            disabled={saving}
+            onClick={() => void persist(true)}
+          >
+            Save & Add Next
+          </button>
+        )}
+      </div>
     </div>
   );
 }

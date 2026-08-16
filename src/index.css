@@ -13,6 +13,7 @@
   --radius: 14px;
   --nav-h: 68px;
   --header-h: 64px;
+  --actions-h: 72px;
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --font: "Segoe UI", "SF Pro Text", system-ui, sans-serif;
   --mono: "Cascadia Mono", "SF Mono", Consolas, monospace;
@@ -311,17 +312,42 @@ textarea.field__input {
 }
 
 .sticky-actions {
-  position: sticky;
-  bottom: calc(var(--nav-h) + var(--safe-bottom) + 8px);
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--nav-h) + var(--safe-bottom));
+  z-index: 45;
   display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr) minmax(0, 1.5fr);
   gap: 8px;
-  margin-top: 18px;
-  padding: 10px;
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
-  backdrop-filter: blur(8px);
-  border-radius: 16px;
-  border: 1px solid var(--line);
-  z-index: 12;
+  margin: 0;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--surface) 96%, transparent);
+  backdrop-filter: blur(14px);
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  box-shadow: 0 -8px 24px rgba(20, 32, 43, 0.08);
+  width: 100%;
+}
+
+/* Exactly two action buttons (e.g. Cancel + Save on edit) */
+.sticky-actions:has(> :nth-child(2):last-child) {
+  grid-template-columns: 1fr 1.4fr;
+}
+
+.sticky-actions .btn--large {
+  min-height: 48px;
+  font-size: 0.9rem;
+  padding: 10px 8px;
+}
+
+.device-form-page,
+.device-detail-page {
+  padding-bottom: calc(88px + var(--nav-h) + var(--safe-bottom));
+}
+
+.device-form-page .danger-zone {
+  margin-bottom: 8px;
 }
 
 .sticky-search {
@@ -750,6 +776,10 @@ textarea.field__input {
   }
 
   .sticky-actions {
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    width: min(820px, 100%);
+    border-radius: 16px 16px 0 0;
   }
 }

@@ -32,6 +32,36 @@ export function downloadBlob(blob: Blob, filename: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
+/** iOS Safari/PWA often ignores <a download>; prefer Share sheet when available. */
+export async function saveBlobAsFile(blob: Blob, filename: string): Promise<void> {
+  const file = new File([blob], filename, {
+    type: blob.type || 'application/zip',
+  });
+
+  const nav = navigator as Navigator & {
+    canShare?: (data: ShareData) => boolean;
+    share?: (data: ShareData) => Promise<void>;
+  };
+
+  if (typeof nav.share === 'function' && typeof nav.canShare === 'function') {
+    try {
+      if (nav.canShare({ files: [file] })) {
+        await nav.share({
+          files: [file],
+          title: filename,
+        });
+        return;
+      }
+    } catch (err) {
+      // User cancelled share — don't fall through to a second download prompt
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+    }
+  }
+
+  downloadBlob(blob, filename);
+}
+
+
 export function todayStamp(): string {
   const d = new Date();
   const y = d.getFullYear();

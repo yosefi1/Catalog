@@ -135,21 +135,21 @@ export function DeviceDetailPage() {
         </div>
       </section>
 
-      <div className="sticky-actions">
-        <Link
-          className="btn btn--primary btn--large"
-          to={`/devices/${device.id}/edit`}
-        >
-          Edit
+      <div className="sticky-actions" role="toolbar" aria-label="Device actions">
+        <Link className="btn btn--ghost btn--large" to="/">
+          Back
         </Link>
         <Link
           className="btn btn--secondary btn--large"
           to={`/devices/new?duplicate=${device.id}`}
         >
-          Duplicate Device
+          Duplicate
         </Link>
-        <Link className="btn btn--ghost btn--large" to="/">
-          Back
+        <Link
+          className="btn btn--primary btn--large"
+          to={`/devices/${device.id}/edit`}
+        >
+          Edit
         </Link>
       </div>
 

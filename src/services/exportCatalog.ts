@@ -6,7 +6,7 @@ import {
   type ExportCatalogData,
   type ExportDeviceRecord,
 } from './exportCatalogHtml';
-import { downloadBlob, todayStamp } from './utils';
+import { saveBlobAsFile, todayStamp } from './utils';
 
 const PHOTO_FILE_NAMES: Record<PhotoType, string> = {
   main: 'main.jpg',
@@ -169,6 +169,6 @@ export async function exportInventoryPackage(
     compression: 'DEFLATE',
     compressionOptions: { level: 6 },
   });
-  downloadBlob(blob, `EquipmentInventory_${stamp}.zip`);
+  await saveBlobAsFile(blob, `EquipmentInventory_${stamp}.zip`);
   onProgress?.('Done');
 }

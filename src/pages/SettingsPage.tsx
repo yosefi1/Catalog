@@ -77,38 +77,19 @@ export function SettingsPage() {
       )}
 
       <section className="settings-section">
-        <h2>Export Inventory</h2>
+        <h2>Move to another device</h2>
         <p className="muted">
-          Download a ZIP with offline HTML catalog, photos, JSON, and Excel.
+          Use <strong>Export Backup</strong> on iPhone, then AirDrop / Files the ZIP to
+          your PC and import it here. This includes all photos.
         </p>
         <button
           type="button"
           className="btn btn--primary btn--large"
-          disabled={busy || !stats?.deviceCount}
-          onClick={() =>
-            void run('Exporting inventory…', async () => {
-              await exportInventoryPackage((msg) => setStatus(msg));
-              setStatus('Inventory ZIP downloaded');
-            })
-          }
-        >
-          Export Inventory Package
-        </button>
-      </section>
-
-      <section className="settings-section">
-        <h2>Backup</h2>
-        <p className="muted">
-          Full backup of devices + photo blobs for restore on another phone.
-        </p>
-        <button
-          type="button"
-          className="btn btn--secondary btn--large"
           disabled={busy}
           onClick={() =>
             void run('Creating backup…', async () => {
               await exportBackupZip();
-              setStatus('Backup ZIP downloaded');
+              setStatus('Backup ready — save/share the ZIP file');
             })
           }
         >
@@ -117,7 +98,32 @@ export function SettingsPage() {
       </section>
 
       <section className="settings-section">
+        <h2>Export HTML catalog (for browsing)</h2>
+        <p className="muted">
+          Offline HTML + photos + Excel for viewing on a PC. This is{' '}
+          <strong>not</strong> the restore backup (unless you import it as a package).
+        </p>
+        <button
+          type="button"
+          className="btn btn--secondary btn--large"
+          disabled={busy || !stats?.deviceCount}
+          onClick={() =>
+            void run('Exporting inventory…', async () => {
+              await exportInventoryPackage((msg) => setStatus(msg));
+              setStatus('Inventory catalog ZIP ready');
+            })
+          }
+        >
+          Export Inventory Package
+        </button>
+      </section>
+
+      <section className="settings-section">
         <h2>Import Backup</h2>
+        <p className="muted">
+          Accepts Backup ZIP (<code>backup.json</code>) or Inventory Package ZIP (
+          <code>inventory.json</code> + images).
+        </p>
         <input
           ref={fileRef}
           type="file"
@@ -133,7 +139,7 @@ export function SettingsPage() {
                 const p = await parseBackupFile(file);
                 setPreview(p);
                 setStatus(
-                  `Found ${p.deviceCount} devices, ${p.photoCount} photos`,
+                  `${p.sourceLabel}: ${p.deviceCount} devices, ${p.photoCount} photos`,
                 );
               } catch (err) {
                 setStatus(err instanceof Error ? err.message : 'Invalid backup');
@@ -151,11 +157,12 @@ export function SettingsPage() {
           disabled={busy}
           onClick={() => fileRef.current?.click()}
         >
-          Choose Backup File
+          Choose Backup / Inventory ZIP
         </button>
 
         {preview && (
           <div className="import-preview">
+            <p className="muted small">{preview.sourceLabel}</p>
             <p>
               <strong>{preview.deviceCount}</strong> devices ·{' '}
               <strong>{preview.photoCount}</strong> photos
