@@ -68,13 +68,22 @@ function requireCatalogKey(req: VercelRequest, res: VercelResponse, body: Record
   return true;
 }
 
+function normalizeSupabaseUrl(raw: string): string {
+  let url = raw.trim().replace(/\/+$/, '');
+  // Common mistake: pasting the REST endpoint instead of the project URL
+  url = url.replace(/\/rest\/v1$/i, '');
+  url = url.replace(/\/auth\/v1$/i, '');
+  url = url.replace(/\/storage\/v1$/i, '');
+  return url;
+}
+
 function getServiceSupabase(): SupabaseClient {
-  const url = process.env.SUPABASE_URL?.trim();
+  const urlRaw = process.env.SUPABASE_URL?.trim();
   const key =
     process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
     process.env.SUPABASE_SECRET_KEY?.trim();
 
-  if (!url) {
+  if (!urlRaw) {
     throw new Error(
       'Missing SUPABASE_URL in Vercel env. Example: https://xxxx.supabase.co',
     );
@@ -84,6 +93,14 @@ function getServiceSupabase(): SupabaseClient {
       'Missing SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_SECRET_KEY). Use Legacy service_role JWT or Secret keys sb_secret_…',
     );
   }
+
+  const url = normalizeSupabaseUrl(urlRaw);
+  if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(url)) {
+    throw new Error(
+      `SUPABASE_URL looks wrong: "${urlRaw}". It must be exactly https://YOURPROJECT.supabase.co (no /rest/v1, no trailing slash).`,
+    );
+  }
+
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
