@@ -1,11 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { DeviceList } from '../components/DeviceList';
 import { defaultFilters, useDevices, useFilterOptions } from '../hooks/useDevices';
+import { syncIfEnabledQuiet } from '../services/cloudSync';
 import type { InventoryFilters, SortField } from '../types/device';
 
 export function InventoryPage() {
   const [filters, setFilters] = useState<InventoryFilters>(defaultFilters);
   const [showFilters, setShowFilters] = useState(false);
+  const [syncNote, setSyncNote] = useState<string | null>(null);
   const devices = useDevices(filters);
   const options = useFilterOptions();
 
@@ -14,6 +16,50 @@ export function InventoryPage() {
     return `${devices.length} device${devices.length === 1 ? '' : 's'}`;
   }, [devices]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function pull() {
+      setSyncNote('Syncing…');
+      const result = await syncIfEnabledQuiet();
+      if (cancelled) return;
+      if (!result) {
+        setSyncNote(null);
+        return;
+      }
+      setSyncNote(result.ok ? 'Cloud synced' : result.message);
+      window.setTimeout(() => {
+        if (!cancelled) setSyncNote(null);
+      }, 2500);
+    }
+
+    void pull();
+
+    // Keep open screens roughly live without manual Sync now
+    const intervalId = window.setInterval(() => {
+      void pull();
+    }, 20_000);
+
+    function onVisible() {
+      if (document.visibilityState === 'visible') void pull();
+    }
+    function onOnline() {
+      void pull();
+    }
+
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('focus', onVisible);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('focus', onVisible);
+    };
+  }, []);
+
   function patch(partial: Partial<InventoryFilters>) {
     setFilters((f) => ({ ...f, ...partial }));
   }
@@ -21,8 +67,11 @@ export function InventoryPage() {
   return (
     <div className="page inventory-page">
       <div className="page-heading">
-        <h1>Inventory</h1>
-        <p>{countLabel}</p>
+        <div>
+          <h1>Inventory</h1>
+          <p>{countLabel}</p>
+        </div>
+        {syncNote && <span className="draft-pill">{syncNote}</span>}
       </div>
 
       <div className="search-block sticky-search">

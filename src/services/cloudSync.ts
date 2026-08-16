@@ -404,7 +404,19 @@ export async function syncOnLaunchIfEnabled(): Promise<void> {
   const settings = await getSyncSettings();
   if (!settings.enabled || !settings.accessKey) return;
   if (!navigator.onLine) return;
-  // Avoid hammering: skip if synced in last 2 minutes
-  if (settings.lastSyncAt && Date.now() - settings.lastSyncAt < 120_000) return;
   await runFullSync();
+}
+
+let syncInFlight: Promise<SyncResult> | null = null;
+
+/** Deduped full sync — safe to call from focus/visibility handlers. */
+export async function syncIfEnabledQuiet(): Promise<SyncResult | null> {
+  const settings = await getSyncSettings();
+  if (!settings.enabled || !settings.accessKey) return null;
+  if (!navigator.onLine) return null;
+  if (syncInFlight) return syncInFlight;
+  syncInFlight = runFullSync().finally(() => {
+    syncInFlight = null;
+  });
+  return syncInFlight;
 }
