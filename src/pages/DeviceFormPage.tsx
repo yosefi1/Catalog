@@ -11,6 +11,7 @@ import {
 } from '../db/devices';
 import { useDeviceDraft } from '../hooks/useDeviceDraft';
 import { uid } from '../services/utils';
+import { syncDeviceAfterSave } from '../services/cloudSync';
 import {
   deviceToForm,
   emptyDeviceForm,
@@ -191,8 +192,11 @@ function DeviceFormEditor({
       }));
 
       if (isNew || deviceId === undefined) {
-        await createDevice(form, photoPayload);
+        const created = await createDevice(form, photoPayload);
         await clearDraft();
+        if (created.id !== undefined) {
+          void syncDeviceAfterSave(created.id);
+        }
         if (andNext) {
           resetFormKeepingContext({
             location: form.location,
@@ -210,6 +214,7 @@ function DeviceFormEditor({
       } else {
         await updateDevice(deviceId, form, photoPayload, keepIds);
         await clearDraft();
+        void syncDeviceAfterSave(deviceId);
         navigate(`/devices/${deviceId}`);
       }
     } catch (e) {

@@ -16,19 +16,16 @@ Catalog devices on an iPhone (camera + forms), store everything locally in Index
 - Inventory search, filters, and sorting
 - Export ZIP: `index.html` + images + `inventory.json` + `inventory.xlsx`
 - Full backup / restore (replace or merge)
+- Optional **cloud sync** (Supabase + shared secret key, no user login)
 - Installable PWA (Home Screen on iOS)
 - OCR-ready interfaces (no OCR provider in v1)
 
 ## Project structure
 
 ```
-src/
-  components/     UI: layout, photo capture, list, lightbox, suggestions
-  db/             Dexie schema + device/draft/suggestion helpers
-  hooks/          Live inventory queries, drafts, photo URLs
-  pages/          Inventory, Add/Edit, Detail, Settings
-  services/       Compression, backup, ZIP export, storage stats
-  types/          Device/photo model + OCR provider interfaces
+src/              React PWA (IndexedDB offline store)
+api/              Vercel serverless sync API (shared key → Supabase)
+supabase/         SQL schema for devices + photos + storage bucket
 public/           PWA icons
 ```
 
@@ -37,6 +34,23 @@ public/           PWA icons
 ```bash
 npm install
 ```
+
+## Cloud sync setup (Supabase + Vercel)
+
+1. Create a free project at [supabase.com](https://supabase.com).
+2. In **SQL Editor**, run [`supabase/schema.sql`](supabase/schema.sql).
+3. Confirm Storage bucket `device-photos` exists (Dashboard → Storage).
+4. Create a long random sync key (password manager).
+5. In **Vercel → Project → Settings → Environment Variables** set:
+   - `CATALOG_ACCESS_KEY` = your sync key
+   - `SUPABASE_URL` = project URL
+   - `SUPABASE_SERVICE_ROLE_KEY` = service role key (server only)
+6. Redeploy.
+7. In the app **Data** page: paste the same key → Enable → **Sync now** (on iPhone and PC).
+
+Local Vite (`npm run dev`) does not serve `/api`. Use the Vercel deployment (or `vercel dev`) to test sync.
+
+See [`.env.example`](.env.example) for variable names. Never commit real keys.
 
 ## Development
 

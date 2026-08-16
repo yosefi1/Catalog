@@ -766,8 +766,17 @@ textarea.field__input {
   margin: 10px 0 0;
 }
 
-.more-fields {
-  margin-top: 8px;
+.sync-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0;
+  font-weight: 650;
+}
+
+.sync-toggle input {
+  width: 20px;
+  height: 20px;
 }
 
 @media (min-width: 720px) {

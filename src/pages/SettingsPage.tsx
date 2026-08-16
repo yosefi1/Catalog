@@ -6,6 +6,12 @@ import {
   parseBackupFile,
   type BackupPreview,
 } from '../services/backup';
+import {
+  getSyncSettings,
+  runFullSync,
+  saveSyncSettings,
+  type SyncSettings,
+} from '../services/cloudSync';
 import { exportInventoryPackage } from '../services/exportCatalog';
 import { clearAllData } from '../db/devices';
 import {
@@ -21,10 +27,15 @@ export function SettingsPage() {
   const [preview, setPreview] = useState<BackupPreview | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [persisted, setPersisted] = useState<boolean | null>(null);
+  const [sync, setSync] = useState<SyncSettings | null>(null);
+  const [keyDraft, setKeyDraft] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function refresh() {
     setStats(await getStorageStats());
+    const s = await getSyncSettings();
+    setSync(s);
+    setKeyDraft(s.accessKey);
   }
 
   useEffect(() => {
@@ -49,7 +60,7 @@ export function SettingsPage() {
     <div className="page settings-page">
       <div className="page-heading">
         <h1>Data & Settings</h1>
-        <p>Local-only storage on this device</p>
+        <p>Local store + optional cloud sync</p>
       </div>
 
       <section className="stats-cards">
@@ -72,19 +83,106 @@ export function SettingsPage() {
           Persistent storage:{' '}
           {persisted
             ? 'Granted (harder for the browser to clear)'
-            : 'Not granted — export backups regularly'}
+            : 'Not granted — enable cloud sync or export backups'}
         </p>
       )}
 
       <section className="settings-section">
-        <h2>Move to another device</h2>
+        <h2>Cloud sync</h2>
         <p className="muted">
-          Use <strong>Export Backup</strong> on iPhone, then AirDrop / Files the ZIP to
-          your PC and import it here. This includes all photos.
+          Shared secret key (no login). Same key on iPhone and PC. Data stays in
+          your Supabase project; the browser never gets the service role key.
+        </p>
+
+        <label className="field">
+          <span className="field__label">Catalog sync key</span>
+          <input
+            className="field__input"
+            type="password"
+            autoComplete="off"
+            value={keyDraft}
+            placeholder="Paste the same long secret used in Vercel"
+            onChange={(e) => setKeyDraft(e.target.value)}
+          />
+        </label>
+
+        <label className="sync-toggle">
+          <input
+            type="checkbox"
+            checked={Boolean(sync?.enabled)}
+            disabled={busy}
+            onChange={(e) => {
+              void (async () => {
+                await saveSyncSettings({
+                  accessKey: keyDraft,
+                  enabled: e.target.checked,
+                });
+                await refresh();
+                setStatus(
+                  e.target.checked
+                    ? 'Cloud sync enabled'
+                    : 'Cloud sync disabled',
+                );
+              })();
+            }}
+          />
+          <span>Enable automatic cloud sync</span>
+        </label>
+
+        <div className="confirm-row">
+          <button
+            type="button"
+            className="btn btn--secondary"
+            disabled={busy}
+            onClick={() =>
+              void run('Saving key…', async () => {
+                await saveSyncSettings({ accessKey: keyDraft });
+                setStatus('Sync key saved on this device');
+              })
+            }
+          >
+            Save key
+          </button>
+          <button
+            type="button"
+            className="btn btn--primary btn--large"
+            disabled={busy || !keyDraft.trim()}
+            onClick={() =>
+              void run('Syncing with cloud…', async () => {
+                await saveSyncSettings({
+                  accessKey: keyDraft,
+                  enabled: true,
+                });
+                const result = await runFullSync();
+                setStatus(result.message);
+                if (!result.ok) throw new Error(result.message);
+              })
+            }
+          >
+            Sync now
+          </button>
+        </div>
+
+        {sync?.lastSyncAt && (
+          <p className="muted small">
+            Last sync: {new Date(sync.lastSyncAt).toLocaleString()}
+            {sync.lastMessage ? ` — ${sync.lastMessage}` : ''}
+          </p>
+        )}
+        {sync?.lastError && (
+          <p className="error-text small">{sync.lastError}</p>
+        )}
+      </section>
+
+      <section className="settings-section">
+        <h2>Move to another device (ZIP)</h2>
+        <p className="muted">
+          Offline fallback: <strong>Export Backup</strong>, then AirDrop / Files
+          the ZIP and import on the other device.
         </p>
         <button
           type="button"
-          className="btn btn--primary btn--large"
+          className="btn btn--secondary btn--large"
           disabled={busy}
           onClick={() =>
             void run('Creating backup…', async () => {
