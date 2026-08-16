@@ -80,6 +80,16 @@ Host the contents of `dist/` as a static website:
 - Service worker at site root scope `/`
 - No server-side API needed for v1
 
+### Vercel (recommended)
+
+1. Import the GitHub `Catalog` repository in Vercel.
+2. Framework preset: **Vite** (or Other).
+3. Build command: `npm run build`
+4. Output directory: `dist`
+5. Deploy — `vercel.json` already rewrites SPA routes to `index.html`.
+
+Inventory data and photos stay in each browser’s IndexedDB. They are never uploaded to Vercel or any backend.
+
 Example with [serve](https://www.npmjs.com/package/serve):
 
 ```bash
