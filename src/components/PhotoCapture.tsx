@@ -9,6 +9,7 @@ import {
 import { compressPhoto } from '../services/photoCompression';
 import { uid } from '../services/utils';
 import { getMeta, setMeta } from '../db/database';
+import { PhotoCropper } from './PhotoCropper';
 import { PhotoLightbox } from './PhotoLightbox';
 import { PhotoSizeToggle } from './PhotoSizeToggle';
 import type { ThumbSize } from './DeviceList';
@@ -26,6 +27,7 @@ export function PhotoCapture({ photos, onChange }: Props) {
   const [activeType, setActiveType] = useState<PhotoType>('main');
   const [busy, setBusy] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [croppingId, setCroppingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [gallerySize, setGallerySize] = useState<ThumbSize>('medium');
 
@@ -94,6 +96,36 @@ export function PhotoCapture({ photos, onChange }: Props) {
     onChange(photos.filter((p) => p.localId !== localId));
   }
 
+  async function applyCrop(localId: string, cropped: Blob) {
+    const target = photos.find((p) => p.localId === localId);
+    if (!target) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const compressed = await compressPhoto(cropped, target.photoType);
+      URL.revokeObjectURL(target.previewUrl);
+      onChange(
+        photos.map((p) =>
+          p.localId === localId
+            ? {
+                ...p,
+                blob: compressed.blob,
+                mimeType: compressed.mimeType,
+                previewUrl: URL.createObjectURL(compressed.blob),
+                createdAt: Date.now(),
+              }
+            : p,
+        ),
+      );
+      setCroppingId(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to crop photo');
+      throw e;
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function replacePhoto(localId: string, file: File) {
     const target = photos.find((p) => p.localId === localId);
     if (!target) return;
@@ -119,6 +151,8 @@ export function PhotoCapture({ photos, onChange }: Props) {
       setBusy(false);
     }
   }
+
+  const cropping = photos.find((p) => p.localId === croppingId);
 
   return (
     <section className="photo-capture">
@@ -202,6 +236,13 @@ export function PhotoCapture({ photos, onChange }: Props) {
               </span>
             </button>
             <div className="photo-tile__bar">
+              <button
+                type="button"
+                className="btn btn--ghost btn--small"
+                onClick={() => setCroppingId(photo.localId)}
+              >
+                Crop
+              </button>
               <label className="btn btn--ghost btn--small">
                 Replace
                 <input
@@ -235,6 +276,15 @@ export function PhotoCapture({ photos, onChange }: Props) {
           index={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
           onIndexChange={setLightboxIndex}
+        />
+      )}
+
+      {cropping && (
+        <PhotoCropper
+          src={cropping.previewUrl}
+          source={cropping.blob}
+          onCancel={() => setCroppingId(null)}
+          onApply={(blob) => applyCrop(cropping.localId, blob)}
         />
       )}
     </section>
