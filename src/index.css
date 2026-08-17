@@ -350,6 +350,17 @@ textarea.field__input {
   margin-bottom: 8px;
 }
 
+.device-form {
+  overflow-anchor: none;
+}
+
+.photo-section {
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 12px 12px;
+}
+
 .sticky-search {
   position: sticky;
   top: 64px;
@@ -571,10 +582,6 @@ textarea.field__input {
   grid-template-columns: 1fr;
 }
 
-.photo-grid--large .photo-tile__preview img {
-  aspect-ratio: 16 / 10;
-}
-
 .thumb-size-row {
   display: flex;
   align-items: center;
@@ -602,15 +609,16 @@ textarea.field__input {
   width: 100%;
   padding: 0;
   border: 0;
-  background: transparent;
+  background: #dfe7ec;
   border-radius: 12px;
   overflow: hidden;
 }
 
 .photo-tile__preview img {
   width: 100%;
-  aspect-ratio: 4 / 3;
-  object-fit: cover;
+  height: auto;
+  object-fit: contain;
+  object-position: center;
   display: block;
   background: #dfe7ec;
 }
@@ -1070,5 +1078,49 @@ textarea.field__input {
     transform: translateX(-50%);
     width: min(820px, 100%);
     border-radius: 16px 16px 0 0;
+  }
+}
+
+@media (max-width: 899px) {
+  .device-form-page.has-photos .photo-section {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(var(--nav-h) + var(--safe-bottom) + 62px);
+    z-index: 42;
+    max-height: min(40vh, 340px);
+    overflow: auto;
+    overscroll-behavior: contain;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -8px 24px rgba(20, 32, 43, 0.1);
+  }
+
+  .device-form-page.has-photos {
+    padding-bottom: calc(88px + var(--nav-h) + var(--safe-bottom) + min(40vh, 340px));
+  }
+}
+
+@media (min-width: 900px) {
+  .app-main:has(.device-form-page) {
+    max-width: 1160px;
+  }
+
+  .device-form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(340px, 0.92fr);
+    gap: 20px 24px;
+    align-items: start;
+  }
+
+  .photo-section {
+    position: sticky;
+    top: calc(var(--header-h) + 10px);
+    max-height: calc(100dvh - var(--header-h) - var(--nav-h) - 96px);
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+
+  .device-form-page .sticky-actions {
+    width: min(1160px, 100%);
   }
 }
