@@ -147,6 +147,25 @@ export async function getDevice(id: number): Promise<DeviceWithPhotos | undefine
   return { ...device, photos };
 }
 
+export async function updateDevicePhotoBlob(
+  photoId: number,
+  patch: { blob: Blob; mimeType: string; width?: number; height?: number },
+): Promise<void> {
+  const photo = await db.photos.get(photoId);
+  if (!photo) throw new Error('Photo not found');
+  const now = Date.now();
+  await db.transaction('rw', db.devices, db.photos, async () => {
+    await db.photos.update(photoId, {
+      blob: patch.blob,
+      mimeType: patch.mimeType,
+      width: patch.width,
+      height: patch.height,
+      createdAt: now,
+    });
+    await db.devices.update(photo.deviceId, { updatedAt: now });
+  });
+}
+
 export async function getAllDevices(): Promise<Device[]> {
   return db.devices.orderBy('inventoryId').toArray();
 }

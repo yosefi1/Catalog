@@ -24,10 +24,12 @@ interface Props {
 export function PhotoCapture({ photos, onChange }: Props) {
   const cameraRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const cropQueue = useRef<string[]>([]);
   const [activeType, setActiveType] = useState<PhotoType>('main');
   const [busy, setBusy] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [croppingId, setCroppingId] = useState<string | null>(null);
+  const [autoCrop, setAutoCrop] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [gallerySize, setGallerySize] = useState<ThumbSize>('medium');
 
@@ -43,6 +45,7 @@ export function PhotoCapture({ photos, onChange }: Props) {
     setError(null);
     try {
       let next = [...photos];
+      const addedIds: string[] = [];
       for (const file of Array.from(fileList)) {
         if (!file.type.startsWith('image/')) continue;
         const compressed = await compressPhoto(file, activeType);
@@ -64,6 +67,7 @@ export function PhotoCapture({ photos, onChange }: Props) {
           createdAt: Date.now(),
         };
         next.push(draft);
+        addedIds.push(draft.localId);
 
         if (activeType !== 'additional') {
           // Advance to next useful slot after capturing a single-slot photo
@@ -81,6 +85,11 @@ export function PhotoCapture({ photos, onChange }: Props) {
         }
       }
       onChange(next);
+      if (addedIds.length) {
+        cropQueue.current = addedIds;
+        setAutoCrop(true);
+        setCroppingId(addedIds[0]);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to process photo');
     } finally {
@@ -94,6 +103,13 @@ export function PhotoCapture({ photos, onChange }: Props) {
     const target = photos.find((p) => p.localId === localId);
     if (target) URL.revokeObjectURL(target.previewUrl);
     onChange(photos.filter((p) => p.localId !== localId));
+  }
+
+  function advanceCropQueue(doneId: string) {
+    cropQueue.current = cropQueue.current.filter((id) => id !== doneId);
+    const nextId = cropQueue.current[0] ?? null;
+    setCroppingId(nextId);
+    if (!nextId) setAutoCrop(false);
   }
 
   async function applyCrop(localId: string, cropped: Blob) {
@@ -117,7 +133,7 @@ export function PhotoCapture({ photos, onChange }: Props) {
             : p,
         ),
       );
-      setCroppingId(null);
+      advanceCropQueue(localId);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to crop photo');
       throw e;
@@ -238,8 +254,11 @@ export function PhotoCapture({ photos, onChange }: Props) {
             <div className="photo-tile__bar">
               <button
                 type="button"
-                className="btn btn--ghost btn--small"
-                onClick={() => setCroppingId(photo.localId)}
+                className="btn btn--secondary btn--small"
+                onClick={() => {
+                  setAutoCrop(false);
+                  setCroppingId(photo.localId);
+                }}
               >
                 Crop
               </button>
@@ -276,6 +295,11 @@ export function PhotoCapture({ photos, onChange }: Props) {
           index={lightboxIndex}
           onClose={() => setLightboxIndex(null)}
           onIndexChange={setLightboxIndex}
+          onCrop={(i) => {
+            setLightboxIndex(null);
+            setAutoCrop(false);
+            setCroppingId(photos[i]?.localId ?? null);
+          }}
         />
       )}
 
@@ -283,7 +307,8 @@ export function PhotoCapture({ photos, onChange }: Props) {
         <PhotoCropper
           src={cropping.previewUrl}
           source={cropping.blob}
-          onCancel={() => setCroppingId(null)}
+          cancelLabel={autoCrop ? 'Use full photo' : 'Cancel'}
+          onCancel={() => advanceCropQueue(cropping.localId)}
           onApply={(blob) => applyCrop(cropping.localId, blob)}
         />
       )}

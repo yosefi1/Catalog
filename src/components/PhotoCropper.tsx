@@ -8,9 +8,16 @@ interface Props {
   source: Blob;
   onCancel: () => void;
   onApply: (cropped: Blob) => void | Promise<void>;
+  cancelLabel?: string;
 }
 
-export function PhotoCropper({ src, source, onCancel, onApply }: Props) {
+export function PhotoCropper({
+  src,
+  source,
+  onCancel,
+  onApply,
+  cancelLabel = 'Cancel',
+}: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const [nat, setNat] = useState({ w: 0, h: 0 });
@@ -203,7 +210,7 @@ export function PhotoCropper({ src, source, onCancel, onApply }: Props) {
 
       <div className="cropper__actions">
         <button type="button" className="btn btn--ghost btn--large" onClick={onCancel} disabled={busy}>
-          Cancel
+          {cancelLabel}
         </button>
         <button
           type="button"

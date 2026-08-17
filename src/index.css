@@ -627,6 +627,10 @@ textarea.field__input {
   padding-inline: 6px;
 }
 
+.photo-tile__bar--single {
+  grid-template-columns: 1fr;
+}
+
 .photo-badge {
   position: absolute;
   left: 8px;

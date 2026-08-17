@@ -10,6 +10,7 @@ interface Props {
   index: number;
   onClose: () => void;
   onIndexChange: (index: number) => void;
+  onCrop?: (index: number) => void;
 }
 
 /**
@@ -21,6 +22,7 @@ export function PhotoLightbox({
   index,
   onClose,
   onIndexChange,
+  onCrop,
 }: Props) {
   const current = images[index];
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -181,6 +183,15 @@ export function PhotoLightbox({
           100%
         </button>
         <span className="lightbox__zoom-label">{nativePct}%</span>
+        {onCrop && (
+          <button
+            type="button"
+            className="btn btn--primary btn--small"
+            onClick={() => onCrop(index)}
+          >
+            Crop
+          </button>
+        )}
         <a
           className="btn btn--secondary btn--small"
           href={current.src}

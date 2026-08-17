@@ -1,10 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { PhotoCropper } from '../components/PhotoCropper';
 import { PhotoLightbox } from '../components/PhotoLightbox';
 import { PhotoSizeToggle } from '../components/PhotoSizeToggle';
 import type { ThumbSize } from '../components/DeviceList';
 import { getMeta, setMeta } from '../db/database';
-import { getDevice } from '../db/devices';
+import { getDevice, updateDevicePhotoBlob } from '../db/devices';
+import { compressPhoto } from '../services/photoCompression';
+import { syncDeviceAfterSave } from '../services/cloudSync';
 import { formatDate } from '../services/utils';
 import { PHOTO_TYPE_LABELS, type DeviceWithPhotos } from '../types/device';
 
@@ -20,7 +23,10 @@ export function DeviceDetailPage() {
   const deviceId = Number(id);
   const [device, setDevice] = useState<DeviceWithPhotos | null>(null);
   const [urls, setUrls] = useState<string[]>([]);
+  const urlsRef = useRef<string[]>([]);
   const [lightbox, setLightbox] = useState<number | null>(null);
+  const [cropIndex, setCropIndex] = useState<number | null>(null);
+  const [cropBusy, setCropBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [gallerySize, setGallerySize] = useState<ThumbSize>('medium');
 
@@ -32,7 +38,6 @@ export function DeviceDetailPage() {
 
   useEffect(() => {
     let cancelled = false;
-    const created: string[] = [];
 
     async function load() {
       const d = await getDevice(deviceId);
@@ -41,11 +46,9 @@ export function DeviceDetailPage() {
         setError('Device not found');
         return;
       }
-      const photoUrls = d.photos.map((p) => {
-        const url = URL.createObjectURL(p.blob);
-        created.push(url);
-        return url;
-      });
+      const photoUrls = d.photos.map((p) => URL.createObjectURL(p.blob));
+      urlsRef.current.forEach((u) => URL.revokeObjectURL(u));
+      urlsRef.current = photoUrls;
       setDevice(d);
       setUrls(photoUrls);
     }
@@ -53,9 +56,55 @@ export function DeviceDetailPage() {
     void load();
     return () => {
       cancelled = true;
-      created.forEach((u) => URL.revokeObjectURL(u));
+      urlsRef.current.forEach((u) => URL.revokeObjectURL(u));
+      urlsRef.current = [];
     };
   }, [deviceId]);
+
+  async function applyDetailCrop(cropped: Blob) {
+    if (cropIndex === null || !device) return;
+    const photo = device.photos[cropIndex];
+    if (photo?.id === undefined) return;
+    setCropBusy(true);
+    try {
+      const compressed = await compressPhoto(cropped, photo.photoType);
+      await updateDevicePhotoBlob(photo.id, {
+        blob: compressed.blob,
+        mimeType: compressed.mimeType,
+        width: compressed.width,
+        height: compressed.height,
+      });
+      const nextUrl = URL.createObjectURL(compressed.blob);
+      setUrls((prev) => {
+        const old = prev[cropIndex];
+        if (old) URL.revokeObjectURL(old);
+        const next = prev.map((url, i) => (i === cropIndex ? nextUrl : url));
+        urlsRef.current = next;
+        return next;
+      });
+      setDevice({
+        ...device,
+        updatedAt: Date.now(),
+        photos: device.photos.map((p, i) =>
+          i === cropIndex
+            ? {
+                ...p,
+                blob: compressed.blob,
+                mimeType: compressed.mimeType,
+                width: compressed.width,
+                height: compressed.height,
+              }
+            : p,
+        ),
+      });
+      setCropIndex(null);
+      void syncDeviceAfterSave(deviceId);
+    } catch (e) {
+      throw e instanceof Error ? e : new Error('Failed to crop photo');
+    } finally {
+      setCropBusy(false);
+    }
+  }
 
   if (error) {
     return (
@@ -67,6 +116,9 @@ export function DeviceDetailPage() {
   }
 
   if (!device) return <p className="page muted">Loading…</p>;
+
+  const croppingPhoto = cropIndex !== null ? device.photos[cropIndex] : undefined;
+  const croppingUrl = cropIndex !== null ? urls[cropIndex] : undefined;
 
   return (
     <div className="page device-detail-page">
@@ -145,17 +197,28 @@ export function DeviceDetailPage() {
         </div>
         <div className={`photo-grid photo-grid--${gallerySize}`}>
           {device.photos.map((p, i) => (
-            <button
-              key={p.id}
-              type="button"
-              className="photo-tile__preview"
-              onClick={() => setLightbox(i)}
-            >
-              <img src={urls[i]} alt={PHOTO_TYPE_LABELS[p.photoType]} />
-              <span className={`photo-badge photo-badge--${p.photoType}`}>
-                {PHOTO_TYPE_LABELS[p.photoType]}
-              </span>
-            </button>
+            <div key={p.id} className="photo-tile">
+              <button
+                type="button"
+                className="photo-tile__preview"
+                onClick={() => setLightbox(i)}
+              >
+                <img src={urls[i]} alt={PHOTO_TYPE_LABELS[p.photoType]} />
+                <span className={`photo-badge photo-badge--${p.photoType}`}>
+                  {PHOTO_TYPE_LABELS[p.photoType]}
+                </span>
+              </button>
+              <div className="photo-tile__bar photo-tile__bar--single">
+                <button
+                  type="button"
+                  className="btn btn--secondary btn--small"
+                  disabled={cropBusy}
+                  onClick={() => setCropIndex(i)}
+                >
+                  Crop
+                </button>
+              </div>
+            </div>
           ))}
           {!device.photos.length && <p className="muted">No photos</p>}
         </div>
@@ -188,6 +251,19 @@ export function DeviceDetailPage() {
           index={lightbox}
           onClose={() => setLightbox(null)}
           onIndexChange={setLightbox}
+          onCrop={(i) => {
+            setLightbox(null);
+            setCropIndex(i);
+          }}
+        />
+      )}
+
+      {croppingPhoto && croppingUrl && (
+        <PhotoCropper
+          src={croppingUrl}
+          source={croppingPhoto.blob}
+          onCancel={() => setCropIndex(null)}
+          onApply={(blob) => applyDetailCrop(blob)}
         />
       )}
     </div>
