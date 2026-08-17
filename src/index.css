@@ -563,6 +563,39 @@ textarea.field__input {
   gap: 10px;
 }
 
+.photo-grid--small {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.photo-grid--large {
+  grid-template-columns: 1fr;
+}
+
+.photo-grid--large .photo-tile__preview img {
+  aspect-ratio: 16 / 10;
+}
+
+.thumb-size-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 8px 0 12px;
+}
+
+.section-title--row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.section-title--row .thumb-size-row {
+  margin: 0;
+}
+
 .photo-tile__preview {
   position: relative;
   display: block;
@@ -804,20 +837,42 @@ textarea.field__input {
 
 .lightbox__viewport {
   min-height: 0;
-  overflow: hidden;
-  display: grid;
-  place-items: center;
+  overflow: auto;
   touch-action: none;
   user-select: none;
+  cursor: grab;
+  -webkit-overflow-scrolling: touch;
+}
+
+.lightbox__viewport--native {
+  display: block;
+}
+
+.lightbox__frame {
+  box-sizing: border-box;
+  min-width: 100%;
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lightbox__native {
+  position: relative;
+  flex-shrink: 0;
 }
 
 .lightbox__viewport img {
-  max-width: 100%;
-  max-height: 72dvh;
-  object-fit: contain;
-  transform-origin: center center;
-  will-change: transform;
-  border-radius: 8px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  margin: 0;
+  max-width: none;
+  max-height: none;
+  object-fit: unset;
+  border-radius: 0;
+  image-rendering: auto;
 }
 
 .lightbox__close,
@@ -877,6 +932,18 @@ textarea.field__input {
 @media (min-width: 720px) {
   .photo-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .photo-grid--small {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .photo-grid--medium {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .photo-grid--large {
+    grid-template-columns: 1fr;
   }
 
   .sticky-actions {

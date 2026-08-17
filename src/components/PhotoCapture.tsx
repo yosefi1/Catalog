@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   PHOTO_TYPE_LABELS,
   PHOTO_TYPES,
@@ -8,7 +8,12 @@ import {
 } from '../types/device';
 import { compressPhoto } from '../services/photoCompression';
 import { uid } from '../services/utils';
+import { getMeta, setMeta } from '../db/database';
 import { PhotoLightbox } from './PhotoLightbox';
+import { PhotoSizeToggle } from './PhotoSizeToggle';
+import type { ThumbSize } from './DeviceList';
+
+const GALLERY_SIZE_KEY = 'devicePhotoGallerySize';
 
 interface Props {
   photos: DraftPhoto[];
@@ -22,6 +27,13 @@ export function PhotoCapture({ photos, onChange }: Props) {
   const [busy, setBusy] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [gallerySize, setGallerySize] = useState<ThumbSize>('medium');
+
+  useEffect(() => {
+    void getMeta(GALLERY_SIZE_KEY, 'medium').then((v) => {
+      if (v === 'small' || v === 'medium' || v === 'large') setGallerySize(v);
+    });
+  }, []);
 
   async function addFiles(fileList: FileList | null) {
     if (!fileList?.length) return;
@@ -166,7 +178,17 @@ export function PhotoCapture({ photos, onChange }: Props) {
       {busy && <p className="muted">Processing photo…</p>}
       {error && <p className="error-text">{error}</p>}
 
-      <div className="photo-grid">
+      {photos.length > 0 && (
+        <PhotoSizeToggle
+          value={gallerySize}
+          onChange={(size) => {
+            setGallerySize(size);
+            void setMeta(GALLERY_SIZE_KEY, size);
+          }}
+        />
+      )}
+
+      <div className={`photo-grid photo-grid--${gallerySize}`}>
         {photos.map((photo, index) => (
           <div key={photo.localId} className="photo-tile">
             <button

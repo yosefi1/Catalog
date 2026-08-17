@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent, type TouchEvent, type WheelEvent, type MouseEvent } from 'react';
+import { useEffect, useRef, useState, type PointerEvent, type TouchEvent } from 'react';
 
 export interface LightboxImage {
   src: string;
@@ -12,9 +12,10 @@ interface Props {
   onIndexChange: (index: number) => void;
 }
 
-const MIN_ZOOM = 1;
-const MAX_ZOOM = 6;
-
+/**
+ * Keep the <img> at naturalWidth × naturalHeight (same bitmap as “open in new tab”).
+ * Fit/zoom only scales that full-resolution element visually — never shrinks then upsamples.
+ */
 export function PhotoLightbox({
   images,
   index,
@@ -22,20 +23,40 @@ export function PhotoLightbox({
   onIndexChange,
 }: Props) {
   const current = images[index];
-  const [zoom, setZoom] = useState(1);
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
+  const [nat, setNat] = useState({ w: 0, h: 0 });
+  const [scale, setScale] = useState(1);
+  const [fit, setFit] = useState(1);
+  const pinch = useRef<{ dist: number; scale: number } | null>(null);
   const drag = useRef<{
     x: number;
     y: number;
-    ox: number;
-    oy: number;
+    sl: number;
+    st: number;
   } | null>(null);
-  const pinch = useRef<{ dist: number; zoom: number } | null>(null);
 
   useEffect(() => {
-    setZoom(1);
-    setOffset({ x: 0, y: 0 });
+    setNat({ w: 0, h: 0 });
   }, [index, current?.src]);
+
+  function applyFitFrom(nw: number, nh: number) {
+    const vp = viewportRef.current;
+    if (!vp || !nw || !nh) return 1;
+    const nextFit = Math.min(vp.clientWidth / nw, vp.clientHeight / nh, 1);
+    setFit(nextFit);
+    setScale(nextFit);
+    return nextFit;
+  }
+
+  function onImgLoad() {
+    const el = imgRef.current;
+    if (!el) return;
+    const nw = el.naturalWidth;
+    const nh = el.naturalHeight;
+    setNat({ w: nw, h: nh });
+    applyFitFrom(nw, nh);
+  }
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -48,81 +69,73 @@ export function PhotoLightbox({
       }
       if (e.key === '+' || e.key === '=') {
         e.preventDefault();
-        bumpZoom(1.25);
+        bump(1.25);
       }
       if (e.key === '-' || e.key === '_') {
         e.preventDefault();
-        bumpZoom(1 / 1.25);
+        bump(1 / 1.25);
       }
-      if (e.key === '0') {
-        setZoom(1);
-        setOffset({ x: 0, y: 0 });
-      }
+      if (e.key === '0') applyFitFrom(nat.w, nat.h);
+      if (e.key === '1') setScale(1);
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [index, images.length, onClose, onIndexChange]);
+  }, [index, images.length, onClose, onIndexChange, nat.w, nat.h]);
 
-  function clampZoom(z: number) {
-    return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
+  useEffect(() => {
+    const vp = viewportRef.current;
+    if (!vp) return;
+    function onWheel(e: WheelEvent) {
+      e.preventDefault();
+      bump(e.deltaY < 0 ? 1.12 : 1 / 1.12);
+    }
+    vp.addEventListener('wheel', onWheel, { passive: false });
+    return () => vp.removeEventListener('wheel', onWheel);
+  }, [fit]);
+
+  function clamp(s: number) {
+    const min = Math.max(fit * 0.5, 0.05);
+    const max = Math.max(1, fit) * 3;
+    return Math.min(max, Math.max(min, s));
   }
 
-  function bumpZoom(factor: number) {
-    setZoom((z) => {
-      const next = clampZoom(z * factor);
-      if (next <= MIN_ZOOM) setOffset({ x: 0, y: 0 });
-      return next;
-    });
-  }
-
-  function onWheel(e: WheelEvent<HTMLDivElement>) {
-    e.preventDefault();
-    const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
-    bumpZoom(factor);
+  function bump(factor: number) {
+    setScale((s) => clamp(s * factor));
   }
 
   function onPointerDown(e: PointerEvent<HTMLDivElement>) {
-    if (zoom <= 1) return;
+    const vp = viewportRef.current;
+    if (!vp) return;
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     drag.current = {
       x: e.clientX,
       y: e.clientY,
-      ox: offset.x,
-      oy: offset.y,
+      sl: vp.scrollLeft,
+      st: vp.scrollTop,
     };
   }
 
   function onPointerMove(e: PointerEvent<HTMLDivElement>) {
-    if (!drag.current || zoom <= 1) return;
-    setOffset({
-      x: drag.current.ox + (e.clientX - drag.current.x),
-      y: drag.current.oy + (e.clientY - drag.current.y),
-    });
+    const vp = viewportRef.current;
+    if (!vp || !drag.current || pinch.current) return;
+    vp.scrollLeft = drag.current.sl - (e.clientX - drag.current.x);
+    vp.scrollTop = drag.current.st - (e.clientY - drag.current.y);
   }
 
   function onPointerUp() {
     drag.current = null;
   }
 
-  function onDoubleClick(e: MouseEvent<HTMLDivElement>) {
-    e.preventDefault();
-    if (zoom > 1) {
-      setZoom(1);
-      setOffset({ x: 0, y: 0 });
-    } else {
-      setZoom(2.5);
-    }
-  }
-
-  function touchDist(touches: { length: number; [index: number]: { clientX: number; clientY: number } }) {
-    const a = touches[0];
-    const b = touches[1];
-    return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+  function touchDist(touches: { length: number; [i: number]: { clientX: number; clientY: number } }) {
+    return Math.hypot(
+      touches[0].clientX - touches[1].clientX,
+      touches[0].clientY - touches[1].clientY,
+    );
   }
 
   function onTouchStart(e: TouchEvent<HTMLDivElement>) {
     if (e.touches.length === 2) {
-      pinch.current = { dist: touchDist(e.touches), zoom };
+      pinch.current = { dist: touchDist(e.touches), scale };
       drag.current = null;
     }
   }
@@ -130,10 +143,7 @@ export function PhotoLightbox({
   function onTouchMove(e: TouchEvent<HTMLDivElement>) {
     if (e.touches.length === 2 && pinch.current) {
       e.preventDefault();
-      const dist = touchDist(e.touches);
-      const next = clampZoom(pinch.current.zoom * (dist / pinch.current.dist));
-      setZoom(next);
-      if (next <= MIN_ZOOM) setOffset({ x: 0, y: 0 });
+      setScale(clamp(pinch.current.scale * (touchDist(e.touches) / pinch.current.dist)));
     }
   }
 
@@ -143,26 +153,42 @@ export function PhotoLightbox({
 
   if (!current) return null;
 
+  const nativePct = nat.w ? Math.round(scale * 100) : 0;
+  const visW = nat.w ? nat.w * scale : undefined;
+  const visH = nat.h ? nat.h * scale : undefined;
+
   return (
     <div className="lightbox" role="dialog" aria-modal="true">
-      <div className="lightbox__toolbar" onClick={(e) => e.stopPropagation()}>
-        <button type="button" className="btn btn--secondary btn--small" onClick={() => bumpZoom(1 / 1.3)}>
+      <div className="lightbox__toolbar">
+        <button type="button" className="btn btn--secondary btn--small" onClick={() => bump(1 / 1.3)}>
           −
         </button>
-        <button type="button" className="btn btn--secondary btn--small" onClick={() => bumpZoom(1.3)}>
+        <button type="button" className="btn btn--secondary btn--small" onClick={() => bump(1.3)}>
           +
         </button>
         <button
           type="button"
           className="btn btn--secondary btn--small"
-          onClick={() => {
-            setZoom(1);
-            setOffset({ x: 0, y: 0 });
-          }}
+          onClick={() => applyFitFrom(nat.w, nat.h)}
         >
           Fit
         </button>
-        <span className="lightbox__zoom-label">{Math.round(zoom * 100)}%</span>
+        <button
+          type="button"
+          className="btn btn--secondary btn--small"
+          onClick={() => setScale(1)}
+        >
+          100%
+        </button>
+        <span className="lightbox__zoom-label">{nativePct}%</span>
+        <a
+          className="btn btn--secondary btn--small"
+          href={current.src}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Open original
+        </a>
         <button type="button" className="lightbox__close" onClick={onClose}>
           Close
         </button>
@@ -190,32 +216,50 @@ export function PhotoLightbox({
       )}
 
       <div
-        className="lightbox__viewport"
-        onClick={(e) => {
-          if (e.target === e.currentTarget && zoom <= 1) onClose();
-        }}
-        onWheel={onWheel}
+        ref={viewportRef}
+        className="lightbox__viewport lightbox__viewport--native"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
-        onDoubleClick={onDoubleClick}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
-        style={{ cursor: zoom > 1 ? 'grab' : 'zoom-in' }}
       >
-        <img
-          src={current.src}
-          alt={current.label || 'Photo'}
-          draggable={false}
-          style={{
-            transform: `translate(${offset.x}px, ${offset.y}px) scale(${zoom})`,
-          }}
-        />
+        <div className="lightbox__frame">
+          <div
+            className="lightbox__native"
+            style={visW && visH ? { width: visW, height: visH } : undefined}
+          >
+            <img
+              ref={imgRef}
+              src={current.src}
+              alt={current.label || 'Photo'}
+              width={nat.w || undefined}
+              height={nat.h || undefined}
+              draggable={false}
+              decoding="sync"
+              onLoad={onImgLoad}
+              style={
+                nat.w
+                  ? {
+                      width: nat.w,
+                      height: nat.h,
+                      maxWidth: 'none',
+                      maxHeight: 'none',
+                      transform: scale === 1 ? undefined : `scale(${scale})`,
+                      transformOrigin: 'top left',
+                    }
+                  : { maxWidth: 'none', maxHeight: 'none' }
+              }
+            />
+          </div>
+        </div>
       </div>
       {current.label && <p className="lightbox__caption">{current.label}</p>}
-      <p className="lightbox__hint">Pinch, scroll, or +/− to zoom · drag to pan · double-tap to reset</p>
+      <p className="lightbox__hint">
+        100% = original pixels · pinch / scroll to zoom · drag to pan
+      </p>
     </div>
   );
 }

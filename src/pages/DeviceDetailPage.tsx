@@ -1,9 +1,19 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { PhotoLightbox } from '../components/PhotoLightbox';
+import { PhotoSizeToggle } from '../components/PhotoSizeToggle';
+import type { ThumbSize } from '../components/DeviceList';
+import { getMeta, setMeta } from '../db/database';
 import { getDevice } from '../db/devices';
 import { formatDate } from '../services/utils';
 import { PHOTO_TYPE_LABELS, type DeviceWithPhotos } from '../types/device';
+
+const GALLERY_SIZE_KEY = 'devicePhotoGallerySize';
+
+function asThumbSize(value: string | number | boolean): ThumbSize {
+  if (value === 'small' || value === 'medium' || value === 'large') return value;
+  return 'medium';
+}
 
 export function DeviceDetailPage() {
   const { id } = useParams();
@@ -12,6 +22,13 @@ export function DeviceDetailPage() {
   const [urls, setUrls] = useState<string[]>([]);
   const [lightbox, setLightbox] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [gallerySize, setGallerySize] = useState<ThumbSize>('medium');
+
+  useEffect(() => {
+    void getMeta(GALLERY_SIZE_KEY, 'medium').then((v) =>
+      setGallerySize(asThumbSize(v)),
+    );
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -116,8 +133,17 @@ export function DeviceDetailPage() {
       )}
 
       <section>
-        <h2>Photos</h2>
-        <div className="photo-grid">
+        <div className="section-title section-title--row">
+          <h2>Photos</h2>
+          <PhotoSizeToggle
+            value={gallerySize}
+            onChange={(size) => {
+              setGallerySize(size);
+              void setMeta(GALLERY_SIZE_KEY, size);
+            }}
+          />
+        </div>
+        <div className={`photo-grid photo-grid--${gallerySize}`}>
           {device.photos.map((p, i) => (
             <button
               key={p.id}
