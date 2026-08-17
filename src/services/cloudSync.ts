@@ -3,6 +3,7 @@ import {
   getAllDevices,
   getDevice,
   ensureCounterPastExisting,
+  deleteDevice,
 } from '../db/devices';
 import type { Device, DeviceFormState, PhotoType } from '../types/device';
 import { blobToBase64, base64ToBlob } from './utils';
@@ -12,6 +13,27 @@ const META_ENABLED = 'syncEnabled';
 const META_LAST = 'syncLastAt';
 const META_LAST_ERROR = 'syncLastError';
 const META_LAST_MSG = 'syncLastMessage';
+const META_DELETED = 'deletedInventoryIds';
+
+async function getDeletedIds(): Promise<Set<string>> {
+  const raw = String(await getMeta(META_DELETED, '[]'));
+  try {
+    const arr = JSON.parse(raw) as unknown;
+    return new Set(Array.isArray(arr) ? arr.map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+async function saveDeletedIds(ids: Set<string>): Promise<void> {
+  await setMeta(META_DELETED, JSON.stringify(Array.from(ids)));
+}
+
+async function rememberDeleted(inventoryId: string): Promise<void> {
+  const ids = await getDeletedIds();
+  ids.add(inventoryId);
+  await saveDeletedIds(ids);
+}
 
 export interface SyncSettings {
   accessKey: string;
@@ -172,6 +194,8 @@ export async function runFullSync(): Promise<SyncResult> {
       photos: RemotePhotoMeta[];
     }>(accessKey, { action: 'pull' });
 
+    const deletedIds = await getDeletedIds();
+
     const remoteById = new Map(
       remote.devices.map((d) => [d.inventoryId, d] as const),
     );
@@ -187,6 +211,7 @@ export async function runFullSync(): Promise<SyncResult> {
 
     for (const local of localDevices) {
       if (!local.inventoryId || local.id === undefined) continue;
+      if (deletedIds.has(local.inventoryId)) continue;
       const rem = remoteById.get(local.inventoryId);
       if (!rem || local.updatedAt >= rem.updatedAt) {
         toPushMeta.push({
@@ -253,6 +278,7 @@ export async function runFullSync(): Promise<SyncResult> {
     let pulledPhotos = 0;
 
     for (const rem of remoteAfter.devices) {
+      if (deletedIds.has(rem.inventoryId)) continue;
       const local = localById.get(rem.inventoryId);
       const shouldApply =
         !local || rem.updatedAt > local.updatedAt || local.id === undefined;
@@ -317,6 +343,17 @@ export async function runFullSync(): Promise<SyncResult> {
           pulledPhotos++;
         }
         pulledDevices++;
+      }
+    }
+
+    if (deletedIds.size && settings.accessKey) {
+      try {
+        await callSync(settings.accessKey, {
+          action: 'delete',
+          inventoryIds: Array.from(deletedIds),
+        });
+      } catch {
+        /* keep tombstones; retry next sync */
       }
     }
 
@@ -396,6 +433,30 @@ export async function syncDeviceAfterSave(deviceId: number): Promise<void> {
     await markSyncResult(
       false,
       e instanceof Error ? e.message : 'Background sync failed',
+    );
+  }
+}
+
+/** Delete locally and from cloud (so auto-sync does not restore it). */
+export async function deleteDeviceEverywhere(
+  deviceId: number,
+): Promise<void> {
+  const device = await getDevice(deviceId);
+  if (!device) return;
+  await rememberDeleted(device.inventoryId);
+  await deleteDevice(deviceId);
+
+  const settings = await getSyncSettings();
+  if (!settings.enabled || !settings.accessKey || !navigator.onLine) return;
+  try {
+    await callSync(settings.accessKey, {
+      action: 'delete',
+      inventoryIds: [device.inventoryId],
+    });
+  } catch (e) {
+    await markSyncResult(
+      false,
+      e instanceof Error ? e.message : 'Cloud delete failed — will retry on sync',
     );
   }
 }

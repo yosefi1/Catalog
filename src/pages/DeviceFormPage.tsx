@@ -4,14 +4,13 @@ import { PhotoCapture } from '../components/PhotoCapture';
 import { SuggestInput } from '../components/SuggestInput';
 import {
   createDevice,
-  deleteDevice,
   getDevice,
   peekNextInventoryId,
   updateDevice,
 } from '../db/devices';
 import { useDeviceDraft } from '../hooks/useDeviceDraft';
 import { uid } from '../services/utils';
-import { syncDeviceAfterSave } from '../services/cloudSync';
+import { deleteDeviceEverywhere, syncDeviceAfterSave } from '../services/cloudSync';
 import {
   deviceToForm,
   emptyDeviceForm,
@@ -231,7 +230,7 @@ function DeviceFormEditor({
 
   async function onDelete() {
     if (deviceId === undefined) return;
-    await deleteDevice(deviceId);
+    await deleteDeviceEverywhere(deviceId);
     await clearDraft();
     navigate('/');
   }

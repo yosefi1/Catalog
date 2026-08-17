@@ -290,6 +290,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
+    if (action === 'delete') {
+      const inventoryIds = (body.inventoryIds ?? []) as string[];
+      for (const inventoryId of inventoryIds) {
+        if (!inventoryId) continue;
+        const { data: existing } = await supabase
+          .from('photos')
+          .select('storage_path')
+          .eq('inventory_id', inventoryId);
+        const paths = (existing ?? []).map((p) => p.storage_path as string);
+        if (paths.length) {
+          await supabase.storage.from('device-photos').remove(paths);
+        }
+        await supabase.from('photos').delete().eq('inventory_id', inventoryId);
+        const { error } = await supabase
+          .from('devices')
+          .delete()
+          .eq('inventory_id', inventoryId);
+        if (error) throw error;
+      }
+      res.status(200).json({ ok: true, deleted: inventoryIds.length });
+      return;
+    }
+
     if (action === 'downloadPhoto') {
       const storagePath = String(body.storagePath ?? '');
       if (!storagePath) {

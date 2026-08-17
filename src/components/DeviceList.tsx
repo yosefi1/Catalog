@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { Device } from '../types/device';
-import { getMainPhotoId } from '../hooks/usePhotoUrl';
-import { usePhotoUrl } from '../hooks/usePhotoUrl';
+import { getMainPhotoId, usePhotoUrl } from '../hooks/usePhotoUrl';
+import { deleteDeviceEverywhere } from '../services/cloudSync';
 
 function DeviceThumb({ deviceId }: { deviceId: number }) {
   const [photoId, setPhotoId] = useState<number | undefined>();
@@ -19,6 +19,20 @@ interface Props {
 }
 
 export function DeviceList({ devices }: Props) {
+  const [confirmId, setConfirmId] = useState<number | null>(null);
+  const [busyId, setBusyId] = useState<number | null>(null);
+
+  async function onDelete(device: Device) {
+    if (device.id === undefined) return;
+    setBusyId(device.id);
+    try {
+      await deleteDeviceEverywhere(device.id);
+      setConfirmId(null);
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   if (!devices.length) {
     return (
       <div className="empty-state">
@@ -34,7 +48,7 @@ export function DeviceList({ devices }: Props) {
   return (
     <ul className="device-list">
       {devices.map((d) => (
-        <li key={d.id}>
+        <li key={d.id} className="device-item">
           <Link className="device-row" to={`/devices/${d.id}`}>
             {d.id !== undefined ? (
               <DeviceThumb deviceId={d.id} />
@@ -55,6 +69,36 @@ export function DeviceList({ devices }: Props) {
               <div className="device-row__loc">{d.location || 'No location'}</div>
             </div>
           </Link>
+          <div className="device-item__actions">
+            {confirmId === d.id ? (
+              <>
+                <button
+                  type="button"
+                  className="btn btn--danger btn--small"
+                  disabled={busyId === d.id}
+                  onClick={() => void onDelete(d)}
+                >
+                  {busyId === d.id ? 'Deleting…' : 'Confirm'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--secondary btn--small"
+                  disabled={busyId === d.id}
+                  onClick={() => setConfirmId(null)}
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="btn btn--danger btn--small"
+                onClick={() => d.id !== undefined && setConfirmId(d.id)}
+              >
+                Delete
+              </button>
+            )}
+          </div>
         </li>
       ))}
     </ul>
