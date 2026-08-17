@@ -19,10 +19,9 @@ export function PhotoCropper({
   cancelLabel = 'Cancel',
 }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
-  const imgRef = useRef<HTMLImageElement>(null);
   const [nat, setNat] = useState({ w: 0, h: 0 });
+  const [stage, setStage] = useState({ w: 0, h: 0 });
   const [crop, setCrop] = useState<PixelCrop>({ x: 0, y: 0, width: 0, height: 0 });
-  const [view, setView] = useState({ left: 0, top: 0, scaleX: 1, scaleY: 1 });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const drag = useRef<{
@@ -32,68 +31,65 @@ export function PhotoCropper({
     crop: PixelCrop;
   } | null>(null);
 
-  function measure() {
-    const img = imgRef.current;
-    const stage = stageRef.current;
-    if (!img?.naturalWidth || !stage) return;
-    const ir = img.getBoundingClientRect();
-    const sr = stage.getBoundingClientRect();
-    setView({
-      left: ir.left - sr.left,
-      top: ir.top - sr.top,
-      scaleX: ir.width / img.naturalWidth,
-      scaleY: ir.height / img.naturalHeight,
-    });
-  }
-
-  function onImgLoad() {
-    const img = imgRef.current;
-    if (!img) return;
-    const w = img.naturalWidth;
-    const h = img.naturalHeight;
-    setNat({ w, h });
-    const insetX = Math.round(w * 0.08);
-    const insetY = Math.round(h * 0.08);
-    setCrop(
-      clampCrop(
-        {
-          x: insetX,
-          y: insetY,
-          width: w - insetX * 2,
-          height: h - insetY * 2,
-        },
-        w,
-        h,
-      ),
-    );
-    measure();
-    requestAnimationFrame(() => measure());
+  function measureStage() {
+    const el = stageRef.current;
+    if (!el) return;
+    setStage({ w: el.clientWidth, h: el.clientHeight });
   }
 
   useEffect(() => {
-    const img = imgRef.current;
-    if (img?.complete && img.naturalWidth) onImgLoad();
-  }, [src]);
+    let revoked = false;
+    const url = URL.createObjectURL(source);
+    const img = new Image();
+    img.onload = () => {
+      if (revoked) return;
+      const w = img.naturalWidth;
+      const h = img.naturalHeight;
+      setNat({ w, h });
+      const insetX = Math.round(w * 0.08);
+      const insetY = Math.round(h * 0.08);
+      setCrop(
+        clampCrop(
+          {
+            x: insetX,
+            y: insetY,
+            width: w - insetX * 2,
+            height: h - insetY * 2,
+          },
+          w,
+          h,
+        ),
+      );
+      measureStage();
+    };
+    img.onerror = () => {
+      if (!revoked) setError('Failed to load photo');
+    };
+    img.src = url;
+    return () => {
+      revoked = true;
+      URL.revokeObjectURL(url);
+    };
+  }, [source]);
+
+  useEffect(() => {
+    measureStage();
+    const el = stageRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => measureStage());
+    ro.observe(el);
+    window.addEventListener('resize', measureStage);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', measureStage);
+    };
+  }, []);
 
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
       document.body.style.overflow = prev;
-    };
-  }, []);
-
-  useEffect(() => {
-    function onResize() {
-      measure();
-    }
-    window.addEventListener('resize', onResize);
-    const stage = stageRef.current;
-    const ro = stage ? new ResizeObserver(onResize) : null;
-    if (stage && ro) ro.observe(stage);
-    return () => {
-      window.removeEventListener('resize', onResize);
-      ro?.disconnect();
     };
   }, []);
 
@@ -105,6 +101,13 @@ export function PhotoCropper({
     return () => window.removeEventListener('keydown', onKey);
   }, [onCancel]);
 
+  const scale =
+    nat.w && nat.h && stage.w && stage.h
+      ? Math.min(stage.w / nat.w, stage.h / nat.h)
+      : 0;
+  const visW = scale ? nat.w * scale : 0;
+  const visH = scale ? nat.h * scale : 0;
+
   function onPointerDown(handle: Handle, e: PointerEvent<HTMLElement>) {
     e.preventDefault();
     e.stopPropagation();
@@ -114,9 +117,9 @@ export function PhotoCropper({
 
   function onPointerMove(e: PointerEvent<HTMLDivElement>) {
     const start = drag.current;
-    if (!start || !nat.w) return;
-    const dx = (e.clientX - start.x) / view.scaleX;
-    const dy = (e.clientY - start.y) / view.scaleY;
+    if (!start || !nat.w || !scale) return;
+    const dx = (e.clientX - start.x) / scale;
+    const dy = (e.clientY - start.y) / scale;
     const c = start.crop;
     let next: PixelCrop;
     if (start.handle === 'move') {
@@ -156,10 +159,10 @@ export function PhotoCropper({
   }
 
   const box = {
-    left: view.left + crop.x * view.scaleX,
-    top: view.top + crop.y * view.scaleY,
-    width: crop.width * view.scaleX,
-    height: crop.height * view.scaleY,
+    left: crop.x * scale,
+    top: crop.y * scale,
+    width: crop.width * scale,
+    height: crop.height * scale,
   };
 
   return (
@@ -180,28 +183,24 @@ export function PhotoCropper({
       </div>
 
       <div ref={stageRef} className="cropper__stage">
-        <img
-          ref={imgRef}
-          src={src}
-          alt="Crop"
-          draggable={false}
-          onLoad={onImgLoad}
-        />
-        {nat.w > 0 && (
-          <div
-            className="cropper__box"
-            style={box}
-            onPointerDown={(e) => onPointerDown('move', e)}
-          >
-            {(['nw', 'ne', 'sw', 'se'] as const).map((handle) => (
-              <button
-                key={handle}
-                type="button"
-                aria-label={`Resize ${handle}`}
-                className={`cropper__handle cropper__handle--${handle}`}
-                onPointerDown={(e) => onPointerDown(handle, e)}
-              />
-            ))}
+        {visW > 0 && (
+          <div className="cropper__fit" style={{ width: visW, height: visH }}>
+            <img src={src} alt="Crop" draggable={false} />
+            <div
+              className="cropper__box"
+              style={box}
+              onPointerDown={(e) => onPointerDown('move', e)}
+            >
+              {(['nw', 'ne', 'sw', 'se'] as const).map((handle) => (
+                <button
+                  key={handle}
+                  type="button"
+                  aria-label={`Resize ${handle}`}
+                  className={`cropper__handle cropper__handle--${handle}`}
+                  onPointerDown={(e) => onPointerDown(handle, e)}
+                />
+              ))}
+            </div>
           </div>
         )}
       </div>

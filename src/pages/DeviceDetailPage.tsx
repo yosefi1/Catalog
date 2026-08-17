@@ -5,7 +5,7 @@ import { PhotoLightbox } from '../components/PhotoLightbox';
 import { PhotoSizeToggle } from '../components/PhotoSizeToggle';
 import type { ThumbSize } from '../components/DeviceList';
 import { getMeta, setMeta } from '../db/database';
-import { getDevice, updateDevicePhotoBlob } from '../db/devices';
+import { getDevice, updateDevicePhotoBlob, deleteDevicePhoto } from '../db/devices';
 import { compressPhoto } from '../services/photoCompression';
 import { syncDeviceAfterSave } from '../services/cloudSync';
 import { formatDate } from '../services/utils';
@@ -27,6 +27,8 @@ export function DeviceDetailPage() {
   const [lightbox, setLightbox] = useState<number | null>(null);
   const [cropIndex, setCropIndex] = useState<number | null>(null);
   const [cropBusy, setCropBusy] = useState(false);
+  const [confirmPhotoId, setConfirmPhotoId] = useState<number | null>(null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [gallerySize, setGallerySize] = useState<ThumbSize>('medium');
 
@@ -35,6 +37,14 @@ export function DeviceDetailPage() {
       setGallerySize(asThumbSize(v)),
     );
   }, []);
+
+  function showDevice(d: DeviceWithPhotos) {
+    const photoUrls = d.photos.map((p) => URL.createObjectURL(p.blob));
+    urlsRef.current.forEach((u) => URL.revokeObjectURL(u));
+    urlsRef.current = photoUrls;
+    setDevice(d);
+    setUrls(photoUrls);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -46,11 +56,7 @@ export function DeviceDetailPage() {
         setError('Device not found');
         return;
       }
-      const photoUrls = d.photos.map((p) => URL.createObjectURL(p.blob));
-      urlsRef.current.forEach((u) => URL.revokeObjectURL(u));
-      urlsRef.current = photoUrls;
-      setDevice(d);
-      setUrls(photoUrls);
+      showDevice(d);
     }
 
     void load();
@@ -63,44 +69,44 @@ export function DeviceDetailPage() {
 
   async function applyDetailCrop(cropped: Blob) {
     if (cropIndex === null || !device) return;
-    const photo = device.photos[cropIndex];
-    if (photo?.id === undefined) return;
+    const wantedId = device.photos[cropIndex]?.id;
+    const photoType = device.photos[cropIndex]?.photoType ?? 'additional';
     setCropBusy(true);
     try {
-      const compressed = await compressPhoto(cropped, photo.photoType);
-      await updateDevicePhotoBlob(photo.id, {
-        blob: compressed.blob,
-        mimeType: compressed.mimeType,
-        width: compressed.width,
-        height: compressed.height,
-      });
-      const nextUrl = URL.createObjectURL(compressed.blob);
-      setUrls((prev) => {
-        const old = prev[cropIndex];
-        if (old) URL.revokeObjectURL(old);
-        const next = prev.map((url, i) => (i === cropIndex ? nextUrl : url));
-        urlsRef.current = next;
-        return next;
-      });
-      setDevice({
-        ...device,
-        updatedAt: Date.now(),
-        photos: device.photos.map((p, i) =>
-          i === cropIndex
-            ? {
-                ...p,
-                blob: compressed.blob,
-                mimeType: compressed.mimeType,
-                width: compressed.width,
-                height: compressed.height,
-              }
-            : p,
-        ),
-      });
+      const compressed = await compressPhoto(cropped, photoType);
+      await updateDevicePhotoBlob(
+        wantedId ?? Number.NaN,
+        {
+          blob: compressed.blob,
+          mimeType: compressed.mimeType,
+          width: compressed.width,
+          height: compressed.height,
+        },
+        { deviceId, index: cropIndex },
+      );
+      const fresh = await getDevice(deviceId);
+      if (fresh) showDevice(fresh);
       setCropIndex(null);
       void syncDeviceAfterSave(deviceId);
     } catch (e) {
       throw e instanceof Error ? e : new Error('Failed to crop photo');
+    } finally {
+      setCropBusy(false);
+    }
+  }
+
+  async function onDeletePhoto(photoId: number) {
+    setCropBusy(true);
+    try {
+      await deleteDevicePhoto(photoId);
+      setConfirmPhotoId(null);
+      setPhotoError(null);
+      setLightbox(null);
+      const fresh = await getDevice(deviceId);
+      if (fresh) showDevice(fresh);
+      void syncDeviceAfterSave(deviceId);
+    } catch (e) {
+      setPhotoError(e instanceof Error ? e.message : 'Failed to delete photo');
     } finally {
       setCropBusy(false);
     }
@@ -195,6 +201,7 @@ export function DeviceDetailPage() {
             }}
           />
         </div>
+        {photoError && <p className="error-text">{photoError}</p>}
         <div className={`photo-grid photo-grid--${gallerySize}`}>
           {device.photos.map((p, i) => (
             <div key={p.id} className="photo-tile">
@@ -208,7 +215,7 @@ export function DeviceDetailPage() {
                   {PHOTO_TYPE_LABELS[p.photoType]}
                 </span>
               </button>
-              <div className="photo-tile__bar photo-tile__bar--single">
+              <div className="photo-tile__bar photo-tile__bar--split">
                 <button
                   type="button"
                   className="btn btn--secondary btn--small"
@@ -217,6 +224,35 @@ export function DeviceDetailPage() {
                 >
                   Crop
                 </button>
+                {confirmPhotoId === p.id ? (
+                  <>
+                    <button
+                      type="button"
+                      className="btn btn--danger btn--small"
+                      disabled={cropBusy || p.id === undefined}
+                      onClick={() => p.id !== undefined && void onDeletePhoto(p.id)}
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--ghost btn--small"
+                      disabled={cropBusy}
+                      onClick={() => setConfirmPhotoId(null)}
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn--danger btn--small"
+                    disabled={cropBusy || p.id === undefined}
+                    onClick={() => p.id !== undefined && setConfirmPhotoId(p.id)}
+                  >
+                    Delete
+                  </button>
+                )}
               </div>
             </div>
           ))}

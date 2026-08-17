@@ -150,18 +150,38 @@ export async function getDevice(id: number): Promise<DeviceWithPhotos | undefine
 export async function updateDevicePhotoBlob(
   photoId: number,
   patch: { blob: Blob; mimeType: string; width?: number; height?: number },
-): Promise<void> {
-  const photo = await db.photos.get(photoId);
-  if (!photo) throw new Error('Photo not found');
+  fallback?: { deviceId: number; index: number },
+): Promise<number> {
+  let id = Number(photoId);
+  let photo = Number.isFinite(id) ? await db.photos.get(id) : undefined;
+  if (!photo && fallback) {
+    const rows = await db.photos.where('deviceId').equals(fallback.deviceId).toArray();
+    photo = rows[fallback.index];
+    id = Number(photo?.id);
+  }
+  if (!photo || !Number.isFinite(id)) throw new Error('Photo not found');
+  const deviceKey = photo.deviceId;
   const now = Date.now();
   await db.transaction('rw', db.devices, db.photos, async () => {
-    await db.photos.update(photoId, {
+    await db.photos.update(id, {
       blob: patch.blob,
       mimeType: patch.mimeType,
       width: patch.width,
       height: patch.height,
       createdAt: now,
     });
+    await db.devices.update(deviceKey, { updatedAt: now });
+  });
+  return id;
+}
+
+export async function deleteDevicePhoto(photoId: number): Promise<void> {
+  const id = Number(photoId);
+  const photo = Number.isFinite(id) ? await db.photos.get(id) : undefined;
+  if (!photo) throw new Error('Photo not found');
+  const now = Date.now();
+  await db.transaction('rw', db.devices, db.photos, async () => {
+    await db.photos.delete(id);
     await db.devices.update(photo.deviceId, { updatedAt: now });
   });
 }
