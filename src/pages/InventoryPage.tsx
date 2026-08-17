@@ -1,13 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
-import { DeviceList } from '../components/DeviceList';
+import { DeviceList, type ThumbSize } from '../components/DeviceList';
 import { defaultFilters, useDevices, useFilterOptions } from '../hooks/useDevices';
+import { getMeta, setMeta } from '../db/database';
 import { syncIfEnabledQuiet } from '../services/cloudSync';
 import type { InventoryFilters, SortField } from '../types/device';
+
+const THUMB_KEY = 'inventoryThumbSize';
+
+function asThumbSize(value: string | number | boolean): ThumbSize {
+  if (value === 'small' || value === 'medium' || value === 'large') return value;
+  return 'medium';
+}
 
 export function InventoryPage() {
   const [filters, setFilters] = useState<InventoryFilters>(defaultFilters);
   const [showFilters, setShowFilters] = useState(false);
   const [syncNote, setSyncNote] = useState<string | null>(null);
+  const [thumbSize, setThumbSize] = useState<ThumbSize>('medium');
   const devices = useDevices(filters);
   const options = useFilterOptions();
 
@@ -15,6 +24,15 @@ export function InventoryPage() {
     if (!devices) return 'Loading…';
     return `${devices.length} device${devices.length === 1 ? '' : 's'}`;
   }, [devices]);
+
+  useEffect(() => {
+    void getMeta(THUMB_KEY, 'medium').then((v) => setThumbSize(asThumbSize(v)));
+  }, []);
+
+  function changeThumbSize(size: ThumbSize) {
+    setThumbSize(size);
+    void setMeta(THUMB_KEY, size);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -90,6 +108,26 @@ export function InventoryPage() {
         >
           {showFilters ? 'Hide filters' : 'Filters & sort'}
         </button>
+        <div className="thumb-size-toggle" role="group" aria-label="Photo size">
+          {(
+            [
+              ['small', 'S', 'Small'],
+              ['medium', 'M', 'Medium'],
+              ['large', 'L', 'Large'],
+            ] as const
+          ).map(([size, label, title]) => (
+            <button
+              key={size}
+              type="button"
+              title={title}
+              aria-label={title}
+              className={`thumb-size-toggle__btn ${thumbSize === size ? 'is-active' : ''}`}
+              onClick={() => changeThumbSize(size)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {showFilters && (
@@ -189,7 +227,7 @@ export function InventoryPage() {
       {devices === undefined ? (
         <p className="muted">Loading inventory…</p>
       ) : (
-        <DeviceList devices={devices} />
+        <DeviceList devices={devices} thumbSize={thumbSize} />
       )}
     </div>
   );

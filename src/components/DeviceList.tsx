@@ -4,21 +4,39 @@ import type { Device } from '../types/device';
 import { getMainPhotoId, usePhotoUrl } from '../hooks/usePhotoUrl';
 import { deleteDeviceEverywhere } from '../services/cloudSync';
 
-function DeviceThumb({ deviceId }: { deviceId: number }) {
+export type ThumbSize = 'small' | 'medium' | 'large';
+
+function DeviceThumb({
+  deviceId,
+  size,
+}: {
+  deviceId: number;
+  size: ThumbSize;
+}) {
   const [photoId, setPhotoId] = useState<number | undefined>();
   useEffect(() => {
     void getMainPhotoId(deviceId).then(setPhotoId);
   }, [deviceId]);
   const url = usePhotoUrl(photoId);
-  if (!url) return <div className="device-row__thumb placeholder">No photo</div>;
-  return <img className="device-row__thumb" src={url} alt="" loading="lazy" />;
+  if (!url) {
+    return <div className={`device-row__thumb placeholder size-${size}`}>No photo</div>;
+  }
+  return (
+    <img
+      className={`device-row__thumb size-${size}`}
+      src={url}
+      alt=""
+      loading="lazy"
+    />
+  );
 }
 
 interface Props {
   devices: Device[];
+  thumbSize?: ThumbSize;
 }
 
-export function DeviceList({ devices }: Props) {
+export function DeviceList({ devices, thumbSize = 'medium' }: Props) {
   const [confirmId, setConfirmId] = useState<number | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
 
@@ -48,12 +66,14 @@ export function DeviceList({ devices }: Props) {
   return (
     <ul className="device-list">
       {devices.map((d) => (
-        <li key={d.id} className="device-item">
+        <li key={d.id} className={`device-item device-item--${thumbSize}`}>
           <Link className="device-row" to={`/devices/${d.id}`}>
             {d.id !== undefined ? (
-              <DeviceThumb deviceId={d.id} />
+              <DeviceThumb deviceId={d.id} size={thumbSize} />
             ) : (
-              <div className="device-row__thumb placeholder">No photo</div>
+              <div className={`device-row__thumb placeholder size-${thumbSize}`}>
+                No photo
+              </div>
             )}
             <div className="device-row__body">
               <div className="device-row__title">
