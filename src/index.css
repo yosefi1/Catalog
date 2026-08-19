@@ -1323,7 +1323,8 @@ textarea.field__input {
 }
 
 @media (max-width: 899px) {
-  .device-form-page.has-photos .photo-section {
+  /* Add device: keep photos docked while filling fields */
+  .device-form-page.has-photos:not(.device-form-page--edit) .photo-section {
     position: fixed;
     left: 0;
     right: 0;
@@ -1336,8 +1337,21 @@ textarea.field__input {
     box-shadow: 0 -8px 24px rgba(20, 32, 43, 0.1);
   }
 
-  .device-form-page.has-photos {
+  .device-form-page.has-photos:not(.device-form-page--edit) {
     padding-bottom: calc(88px + var(--nav-h) + var(--safe-bottom) + min(40vh, 340px));
+  }
+
+  /* Edit device: single page scroll — fields, then photos, then actions */
+  .device-form-page--edit.has-photos .photo-section {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    margin-top: 16px;
+    box-shadow: none;
+  }
+
+  .device-form-page--edit.has-photos {
+    padding-bottom: calc(88px + var(--nav-h) + var(--safe-bottom));
   }
 }
 

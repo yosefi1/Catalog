@@ -263,7 +263,9 @@ function DeviceFormEditor({
   if (!ready) return <p className="page muted">Restoring draft…</p>;
 
   return (
-    <div className={`page device-form-page${photos.length ? ' has-photos' : ''}`}>
+    <div
+      className={`page device-form-page${photos.length ? ' has-photos' : ''}${editInventoryId ? ' device-form-page--edit' : ''}`}
+    >
       <div className="page-heading">
         <div>
           <p className="inv-id">
