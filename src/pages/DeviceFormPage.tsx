@@ -15,6 +15,7 @@ import {
   deviceToForm,
   emptyDeviceForm,
   PHOTO_TYPE_LABELS,
+  sortPhotosForDisplay,
   type DeviceFormState,
   type DraftPhoto,
 } from '../types/device';
@@ -379,7 +380,9 @@ function DeviceFormEditor({
           <PhotoCapture photos={photos} onChange={setPhotos} />
           {photos.length > 0 && (
             <p className="muted small">
-              {photos.map((p) => PHOTO_TYPE_LABELS[p.photoType]).join(' · ')}
+              {sortPhotosForDisplay(photos)
+                .map((p) => PHOTO_TYPE_LABELS[p.photoType])
+                .join(' · ')}
             </p>
           )}
         </section>

@@ -9,7 +9,7 @@ import { getDevice, updateDevicePhotoBlob, deleteDevicePhoto } from '../db/devic
 import { compressPhoto } from '../services/photoCompression';
 import { syncDeviceAfterSave } from '../services/cloudSync';
 import { formatDate } from '../services/utils';
-import { PHOTO_TYPE_LABELS, type DeviceWithPhotos } from '../types/device';
+import { PHOTO_TYPE_LABELS, sortPhotosForDisplay, type DeviceWithPhotos } from '../types/device';
 
 const GALLERY_SIZE_KEY = 'devicePhotoGallerySize';
 
@@ -39,10 +39,11 @@ export function DeviceDetailPage() {
   }, []);
 
   function showDevice(d: DeviceWithPhotos) {
-    const photoUrls = d.photos.map((p) => URL.createObjectURL(p.blob));
+    const sorted = sortPhotosForDisplay(d.photos);
+    const photoUrls = sorted.map((p) => URL.createObjectURL(p.blob));
     urlsRef.current.forEach((u) => URL.revokeObjectURL(u));
     urlsRef.current = photoUrls;
-    setDevice(d);
+    setDevice({ ...d, photos: sorted });
     setUrls(photoUrls);
   }
 

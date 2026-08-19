@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   PHOTO_TYPE_LABELS,
   PHOTO_TYPES,
   SINGLE_PHOTO_TYPES,
+  sortPhotosForDisplay,
   type DraftPhoto,
   type PhotoType,
 } from '../types/device';
@@ -169,6 +170,7 @@ export function PhotoCapture({ photos, onChange }: Props) {
   }
 
   const cropping = photos.find((p) => p.localId === croppingId);
+  const galleryPhotos = useMemo(() => sortPhotosForDisplay(photos), [photos]);
 
   return (
     <section className="photo-capture">
@@ -239,7 +241,7 @@ export function PhotoCapture({ photos, onChange }: Props) {
       )}
 
       <div className={`photo-grid photo-grid--${gallerySize}`}>
-        {photos.map((photo, index) => (
+        {galleryPhotos.map((photo, index) => (
           <div key={photo.localId} className="photo-tile">
             <button
               type="button"
@@ -288,7 +290,7 @@ export function PhotoCapture({ photos, onChange }: Props) {
 
       {lightboxIndex !== null && (
         <PhotoLightbox
-          images={photos.map((p) => ({
+          images={galleryPhotos.map((p) => ({
             src: p.previewUrl,
             label: PHOTO_TYPE_LABELS[p.photoType],
           }))}
@@ -298,7 +300,7 @@ export function PhotoCapture({ photos, onChange }: Props) {
           onCrop={(i) => {
             setLightboxIndex(null);
             setAutoCrop(false);
-            setCroppingId(photos[i]?.localId ?? null);
+            setCroppingId(galleryPhotos[i]?.localId ?? null);
           }}
         />
       )}

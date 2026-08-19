@@ -21,6 +21,28 @@ export const PHOTO_TYPES: PhotoType[] = [
   'additional',
 ];
 
+/** Gallery order: main first, then serial, then other labels, additional last. */
+export const PHOTO_DISPLAY_ORDER: PhotoType[] = [
+  'main',
+  'serial_label',
+  'model_label',
+  'asset_tag',
+  'additional',
+];
+
+export function sortPhotosForDisplay<
+  T extends { photoType: PhotoType; createdAt: number },
+>(photos: T[]): T[] {
+  return [...photos].sort((a, b) => {
+    const ai = PHOTO_DISPLAY_ORDER.indexOf(a.photoType);
+    const bi = PHOTO_DISPLAY_ORDER.indexOf(b.photoType);
+    const aRank = ai === -1 ? PHOTO_DISPLAY_ORDER.length : ai;
+    const bRank = bi === -1 ? PHOTO_DISPLAY_ORDER.length : bi;
+    if (aRank !== bRank) return aRank - bRank;
+    return a.createdAt - b.createdAt;
+  });
+}
+
 /** Single-slot types: only one photo of this type per device (except additional). */
 export const SINGLE_PHOTO_TYPES: PhotoType[] = [
   'main',
