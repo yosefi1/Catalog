@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import { PhotoCropper } from '../components/PhotoCropper';
 import { DeviceNavButtons } from '../components/DeviceNavButtons';
 import { PhotoLightbox } from '../components/PhotoLightbox';
@@ -16,6 +16,7 @@ import { rotateBlob } from '../services/cropImage';
 import { useMediaDesktop } from '../hooks/useMediaDesktop';
 import { formatDate } from '../services/utils';
 import { PHOTO_TYPE_LABELS, sortPhotosForDisplay, type DeviceWithPhotos } from '../types/device';
+import { deviceLinkState, type DeviceRouteState } from '../services/deviceRouteState';
 
 const GALLERY_SIZE_KEY = 'devicePhotoGallerySize';
 
@@ -32,6 +33,8 @@ async function blobFromUrl(url: string): Promise<Blob> {
 
 export function DeviceDetailPage() {
   const { id: routeId } = useParams();
+  const location = useLocation();
+  const inventoryIdHint = (location.state as DeviceRouteState | null)?.inventoryId;
   const [device, setDevice] = useState<DeviceWithPhotos | null>(null);
   const [lightbox, setLightbox] = useState<number | null>(null);
   const [cropIndex, setCropIndex] = useState<number | null>(null);
@@ -50,7 +53,7 @@ export function DeviceDetailPage() {
 
   async function reload() {
     if (!routeId) return;
-    const d = await getDeviceByRoute(routeId);
+    const d = await getDeviceByRoute(routeId, inventoryIdHint);
     if (!d) {
       setError('Device not found');
       return;
@@ -63,7 +66,7 @@ export function DeviceDetailPage() {
     void (async () => {
       try {
         if (!routeId) throw new Error('Device not found');
-        const d = await getDeviceByRoute(routeId);
+        const d = await getDeviceByRoute(routeId, inventoryIdHint);
         if (cancelled) return;
         if (!d) {
           setError('Device not found');
@@ -79,7 +82,7 @@ export function DeviceDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [routeId]);
+  }, [routeId, inventoryIdHint]);
 
   async function applyDetailCrop(cropped: Blob) {
     if (cropIndex === null || !device || !routeId) return;
@@ -312,6 +315,7 @@ export function DeviceDetailPage() {
         <Link
           className="btn btn--primary btn--large"
           to={`/devices/${routeId}/edit`}
+          state={deviceLinkState(device.inventoryId)}
         >
           Edit
         </Link>

@@ -102,8 +102,15 @@ export async function getDevice(inventoryId: string): Promise<DeviceWithPhotos |
   }
 }
 
-export async function getDeviceByRoute(routeId: string): Promise<DeviceWithPhotos | undefined> {
+export async function getDeviceByRoute(
+  routeId: string,
+  inventoryIdHint?: string,
+): Promise<DeviceWithPhotos | undefined> {
   try {
+    if (inventoryIdHint) {
+      const direct = await getDevice(inventoryIdHint);
+      if (direct) return direct;
+    }
     const inventoryId = await resolveInventoryIdFromRoute(routeId);
     return getDevice(inventoryId);
   } catch {

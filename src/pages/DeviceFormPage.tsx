@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { PhotoCapture } from '../components/PhotoCapture';
 import { DeviceNavButtons } from '../components/DeviceNavButtons';
 import { SuggestInput } from '../components/SuggestInput';
@@ -21,6 +21,7 @@ import {
   type DeviceFormState,
   type DraftPhoto,
 } from '../types/device';
+import type { DeviceRouteState } from '../services/deviceRouteState';
 
 async function blobFromUrl(url: string): Promise<Blob> {
   const res = await fetch(url);
@@ -30,6 +31,8 @@ async function blobFromUrl(url: string): Promise<Blob> {
 
 export function DeviceFormPage() {
   const { id: routeId } = useParams();
+  const location = useLocation();
+  const inventoryIdHint = (location.state as DeviceRouteState | null)?.inventoryId;
   const isNew = !routeId || routeId === 'new';
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -67,7 +70,7 @@ export function DeviceFormPage() {
         }
 
         if (!isNew && routeId) {
-          const device = await getDeviceByRoute(routeId);
+          const device = await getDeviceByRoute(routeId, inventoryIdHint);
           if (!device) throw new Error('Device not found');
           const photos: DraftPhoto[] = await Promise.all(
             device.photos.map(async (p) => {
@@ -109,7 +112,7 @@ export function DeviceFormPage() {
     return () => {
       cancelled = true;
     };
-  }, [routeId, duplicateFrom, isNew]);
+  }, [routeId, duplicateFrom, isNew, inventoryIdHint]);
 
   if (bootError) {
     return (

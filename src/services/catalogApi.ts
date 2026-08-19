@@ -1,4 +1,5 @@
 import { getAccessKey } from './accessKey';
+import { onCatalogChanged } from './catalogEvents';
 import type {
   Device,
   DeviceFormState,
@@ -82,14 +83,48 @@ export type DeviceListRow = Device & {
 
 type DeviceRowFromApi = Omit<DeviceListRow, 'displayNumber'>;
 
-export async function fetchDevices(): Promise<DeviceRowFromApi[]> {
+let devicesCache: DeviceRowFromApi[] | null = null;
+
+export function invalidateDevicesCache(): void {
+  devicesCache = null;
+}
+
+if (typeof window !== 'undefined') {
+  onCatalogChanged(() => {
+    devicesCache = null;
+  });
+}
+
+function pickMainPhoto(
+  photos: SyncPullPhoto[],
+  inventoryId: string,
+): SyncPullPhoto | undefined {
+  const devicePhotos = photos.filter((p) => p.inventoryId === inventoryId);
+  return devicePhotos.find((p) => p.photoType === 'main') ?? devicePhotos[0];
+}
+
+async function loadDevicesFromNetwork(): Promise<DeviceRowFromApi[]> {
   try {
     const data = await apiFetch<{ devices: DeviceRowFromApi[] }>('/api/devices');
     return data.devices;
   } catch {
     const remote = await syncPull();
-    return remote.devices.map((d) => ({ ...d }));
+    return remote.devices.map((d) => {
+      const row = d as DeviceRowFromApi;
+      if (row.thumbnailUrl) return row;
+      const main = pickMainPhoto(remote.photos, d.inventoryId);
+      return {
+        ...d,
+        mainPhotoId: main?.id,
+      };
+    });
   }
+}
+
+export async function fetchDevices(): Promise<DeviceRowFromApi[]> {
+  if (devicesCache) return devicesCache;
+  devicesCache = await loadDevicesFromNetwork();
+  return devicesCache;
 }
 
 export async function fetchDevice(inventoryId: string): Promise<DeviceWithPhotos> {
@@ -99,32 +134,50 @@ export async function fetchDevice(inventoryId: string): Promise<DeviceWithPhotos
       photos: DevicePhoto[];
     }>(`/api/device?inventoryId=${encodeURIComponent(inventoryId)}`);
     return { ...data.device, photos: data.photos };
-  } catch {
-    const remote = await syncPull();
-    const device = remote.devices.find((d) => d.inventoryId === inventoryId);
-    if (!device) throw new CatalogApiError('Device not found', 404);
-    const metas = remote.photos.filter((p) => p.inventoryId === inventoryId);
-    const photos: DevicePhoto[] = [];
-    for (const pm of metas) {
-      const dl = await apiFetch<{ dataBase64: string; mimeType: string }>(
-        '/api/sync',
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            action: 'downloadPhoto',
-            storagePath: pm.storagePath,
-          }),
-        },
-      );
-      photos.push({
-        id: pm.id,
-        photoType: pm.photoType as PhotoType,
-        mimeType: dl.mimeType || pm.mimeType,
-        url: `data:${dl.mimeType || pm.mimeType};base64,${dl.dataBase64}`,
-        createdAt: pm.createdAt,
-      });
+  } catch (primaryError) {
+    if (
+      primaryError instanceof CatalogApiError &&
+      primaryError.status === 404
+    ) {
+      throw primaryError;
     }
-    return { ...device, photos };
+    try {
+      const data = await apiFetch<{
+        device: Device;
+        photos: DevicePhoto[];
+      }>('/api/sync', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'getDevice', inventoryId }),
+      });
+      return { ...data.device, photos: data.photos };
+    } catch {
+      const remote = await syncPull();
+      const device = remote.devices.find((d) => d.inventoryId === inventoryId);
+      if (!device) throw new CatalogApiError('Device not found', 404);
+      const metas = remote.photos.filter((p) => p.inventoryId === inventoryId);
+      const photos: DevicePhoto[] = await Promise.all(
+        metas.map(async (pm) => {
+          const dl = await apiFetch<{ dataBase64: string; mimeType: string }>(
+            '/api/sync',
+            {
+              method: 'POST',
+              body: JSON.stringify({
+                action: 'downloadPhoto',
+                storagePath: pm.storagePath,
+              }),
+            },
+          );
+          return {
+            id: pm.id,
+            photoType: pm.photoType as PhotoType,
+            mimeType: dl.mimeType || pm.mimeType,
+            url: `data:${dl.mimeType || pm.mimeType};base64,${dl.dataBase64}`,
+            createdAt: pm.createdAt,
+          };
+        }),
+      );
+      return { ...device, photos };
+    }
   }
 }
 

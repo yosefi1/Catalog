@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { attachPhotoUrls, rowToDevice, signedPhotoUrl } from './_catalog';
 
 type SyncDevice = {
   inventoryId: string;
@@ -222,7 +223,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         storagePath: String((r as { storage_path: string }).storage_path),
       }));
 
-      res.status(200).json({ devices, photos });
+      const photosByDevice = new Map<string, SyncPhotoOut[]>();
+      for (const photo of photos) {
+        const list = photosByDevice.get(photo.inventoryId) ?? [];
+        list.push(photo);
+        photosByDevice.set(photo.inventoryId, list);
+      }
+
+      const devicesWithThumbs = await Promise.all(
+        devices.map(async (device) => {
+          const devicePhotos = photosByDevice.get(device.inventoryId) ?? [];
+          const main =
+            devicePhotos.find((p) => p.photoType === 'main') ?? devicePhotos[0];
+          let thumbnailUrl: string | undefined;
+          if (main) {
+            try {
+              thumbnailUrl = await signedPhotoUrl(supabase, main.storagePath);
+            } catch {
+              /* missing file in storage */
+            }
+          }
+          return {
+            ...device,
+            thumbnailUrl,
+            mainPhotoId: main?.id,
+          };
+        }),
+      );
+
+      res.status(200).json({ devices: devicesWithThumbs, photos });
       return;
     }
 
@@ -310,6 +339,42 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (error) throw error;
       }
       res.status(200).json({ ok: true, deleted: inventoryIds.length });
+      return;
+    }
+
+    if (action === 'getDevice') {
+      const inventoryId = String(body.inventoryId ?? '');
+      if (!inventoryId) {
+        res.status(400).json({ error: 'inventoryId required' });
+        return;
+      }
+
+      const { data: row, error } = await supabase
+        .from('devices')
+        .select('*')
+        .eq('inventory_id', inventoryId)
+        .maybeSingle();
+      if (error) throw error;
+      if (!row) {
+        res.status(404).json({ error: 'Device not found' });
+        return;
+      }
+
+      const { data: photoRows, error: pErr } = await supabase
+        .from('photos')
+        .select('*')
+        .eq('inventory_id', inventoryId);
+      if (pErr) throw pErr;
+
+      const photos = await attachPhotoUrls(
+        supabase,
+        (photoRows ?? []) as Record<string, unknown>[],
+      );
+
+      res.status(200).json({
+        device: rowToDevice(row as Record<string, unknown>),
+        photos,
+      });
       return;
     }
 

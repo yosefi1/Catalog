@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { deviceRouteId, deleteDevice, formatDisplayNumber } from '../db/devices';
+import { deviceLinkState } from '../services/deviceRouteState';
 import type { DeviceListRow } from '../services/catalogApi';
 
 export type ThumbSize = 'small' | 'medium' | 'large';
@@ -46,7 +47,11 @@ export function DeviceList({ devices, thumbSize = 'medium' }: Props) {
       <ul className="device-list">
         {devices.map((d) => (
           <li key={d.inventoryId} className={`device-item device-item--${thumbSize}`}>
-            <Link className="device-row" to={`/devices/${deviceRouteId(d)}`}>
+            <Link
+              className="device-row"
+              to={`/devices/${deviceRouteId(d)}`}
+              state={deviceLinkState(d.inventoryId)}
+            >
               {d.thumbnailUrl ? (
                 <img
                   className={`device-row__thumb size-${thumbSize}`}

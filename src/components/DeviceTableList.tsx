@@ -17,6 +17,7 @@ import {
   updateDeviceFields,
 } from '../db/devices';
 import type { DeviceListRow } from '../services/catalogApi';
+import { deviceLinkState } from '../services/deviceRouteState';
 import { formatDateShort } from '../services/utils';
 
 const COL_COUNT = 8;
@@ -241,11 +242,19 @@ function ExpandedDevice({
         )}
 
         <div className="table-expand__actions">
-          <Link className="btn btn--primary btn--small" to={`/devices/${displayNumber}`}>
+          <Link
+            className="btn btn--primary btn--small"
+            to={`/devices/${displayNumber}`}
+            state={deviceLinkState(inventoryId)}
+          >
             Open full page
           </Link>
           {!editMode && (
-            <Link className="btn btn--secondary btn--small" to={`/devices/${displayNumber}/edit`}>
+            <Link
+              className="btn btn--secondary btn--small"
+              to={`/devices/${displayNumber}/edit`}
+              state={deviceLinkState(inventoryId)}
+            >
               Edit
             </Link>
           )}
@@ -353,14 +362,14 @@ export function DeviceTableList({
                           disabled={busyId === d.inventoryId}
                           onClick={() => void onDelete(d)}
                         >
-                          {busyId === d.inventoryId ? '…' : 'Del'}
+                          {busyId === d.inventoryId ? '…' : 'Confirm'}
                         </button>
                         <button
                           type="button"
                           className="btn btn--ghost btn--small"
                           onClick={() => setConfirmId(null)}
                         >
-                          ✕
+                          Cancel
                         </button>
                       </>
                     ) : (

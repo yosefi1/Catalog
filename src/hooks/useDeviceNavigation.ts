@@ -1,16 +1,22 @@
 import { useEffect, useState } from 'react';
 import { getMeta } from '../db/database';
 import { deviceRouteId, queryDevices, resolveInventoryIdFromRoute } from '../db/devices';
+import type { DeviceListRow } from '../services/catalogApi';
 import { INVENTORY_FILTERS_KEY, parseStoredFilters } from './useDevices';
 
+export type DeviceNavTarget = {
+  routeId: string;
+  inventoryId: string;
+};
+
 export function useDeviceNavigation(currentRouteId: string | undefined) {
-  const [prevId, setPrevId] = useState<string | undefined>();
-  const [nextId, setNextId] = useState<string | undefined>();
+  const [prev, setPrev] = useState<DeviceNavTarget | undefined>();
+  const [next, setNext] = useState<DeviceNavTarget | undefined>();
 
   useEffect(() => {
     if (!currentRouteId) {
-      setPrevId(undefined);
-      setNextId(undefined);
+      setPrev(undefined);
+      setNext(undefined);
       return;
     }
 
@@ -24,8 +30,8 @@ export function useDeviceNavigation(currentRouteId: string | undefined) {
         await resolveInventoryIdFromRoute(routeId);
       } catch {
         if (!cancelled) {
-          setPrevId(undefined);
-          setNextId(undefined);
+          setPrev(undefined);
+          setNext(undefined);
         }
         return;
       }
@@ -37,12 +43,12 @@ export function useDeviceNavigation(currentRouteId: string | undefined) {
 
       const idx = devices.findIndex((d) => String(d.displayNumber) === routeId);
       if (idx < 0) {
-        setPrevId(undefined);
-        setNextId(undefined);
+        setPrev(undefined);
+        setNext(undefined);
         return;
       }
-      setPrevId(idx > 0 ? deviceRouteId(devices[idx - 1]) : undefined);
-      setNextId(idx < devices.length - 1 ? deviceRouteId(devices[idx + 1]) : undefined);
+      setPrev(idx > 0 ? navTarget(devices[idx - 1]) : undefined);
+      setNext(idx < devices.length - 1 ? navTarget(devices[idx + 1]) : undefined);
     }
 
     void load();
@@ -51,5 +57,9 @@ export function useDeviceNavigation(currentRouteId: string | undefined) {
     };
   }, [currentRouteId]);
 
-  return { prevId, nextId };
+  return { prev, next };
+}
+
+function navTarget(device: DeviceListRow): DeviceNavTarget {
+  return { routeId: deviceRouteId(device), inventoryId: device.inventoryId };
 }

@@ -206,20 +206,20 @@ export async function attachPhotoUrls(
   supabase: SupabaseClient,
   rows: Array<Record<string, unknown>>,
 ): Promise<ApiPhoto[]> {
-  const out: ApiPhoto[] = [];
-  for (const row of rows) {
-    const storagePath = String(row.storage_path);
-    out.push({
-      id: String(row.id),
-      inventoryId: String(row.inventory_id),
-      photoType: String(row.photo_type),
-      mimeType: String(row.mime_type ?? 'image/jpeg'),
-      createdAt: Number(row.created_at) || 0,
-      storagePath,
-      url: await signedPhotoUrl(supabase, storagePath),
-    });
-  }
-  return out;
+  return Promise.all(
+    rows.map(async (row) => {
+      const storagePath = String(row.storage_path);
+      return {
+        id: String(row.id),
+        inventoryId: String(row.inventory_id),
+        photoType: String(row.photo_type),
+        mimeType: String(row.mime_type ?? 'image/jpeg'),
+        createdAt: Number(row.created_at) || 0,
+        storagePath,
+        url: await signedPhotoUrl(supabase, storagePath),
+      };
+    }),
+  );
 }
 
 export async function peekNextInventoryId(
