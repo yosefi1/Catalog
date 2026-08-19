@@ -59,3 +59,40 @@ export function cropBlob(source: Blob, crop: PixelCrop): Promise<Blob> {
     img.src = url;
   });
 }
+
+export function rotateBlob(source: Blob, degrees: 90 | -90): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(source);
+    const img = new Image();
+    img.onload = () => {
+      const w = img.naturalWidth;
+      const h = img.naturalHeight;
+      const canvas = document.createElement('canvas');
+      canvas.width = h;
+      canvas.height = w;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        URL.revokeObjectURL(url);
+        reject(new Error('Canvas unavailable'));
+        return;
+      }
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      ctx.rotate((degrees * Math.PI) / 180);
+      ctx.drawImage(img, -w / 2, -h / 2);
+      URL.revokeObjectURL(url);
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) reject(new Error('Rotate failed'));
+          else resolve(blob);
+        },
+        'image/jpeg',
+        0.92,
+      );
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Failed to load photo'));
+    };
+    img.src = url;
+  });
+}

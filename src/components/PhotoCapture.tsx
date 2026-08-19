@@ -8,8 +8,10 @@ import {
   type PhotoType,
 } from '../types/device';
 import { compressPhoto } from '../services/photoCompression';
+import { rotateBlob } from '../services/cropImage';
 import { uid } from '../services/utils';
 import { getMeta, setMeta } from '../db/database';
+import { useMediaDesktop } from '../hooks/useMediaDesktop';
 import { PhotoCropper } from './PhotoCropper';
 import { PhotoLightbox } from './PhotoLightbox';
 import { PhotoSizeToggle } from './PhotoSizeToggle';
@@ -33,6 +35,7 @@ export function PhotoCapture({ photos, onChange }: Props) {
   const [autoCrop, setAutoCrop] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [gallerySize, setGallerySize] = useState<ThumbSize>('medium');
+  const isDesktop = useMediaDesktop();
 
   useEffect(() => {
     void getMeta(GALLERY_SIZE_KEY, 'medium').then((v) => {
@@ -138,6 +141,35 @@ export function PhotoCapture({ photos, onChange }: Props) {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to crop photo');
       throw e;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function rotatePhoto(localId: string, degrees: 90 | -90) {
+    const target = photos.find((p) => p.localId === localId);
+    if (!target) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const rotated = await rotateBlob(target.blob, degrees);
+      const compressed = await compressPhoto(rotated, target.photoType);
+      URL.revokeObjectURL(target.previewUrl);
+      onChange(
+        photos.map((p) =>
+          p.localId === localId
+            ? {
+                ...p,
+                blob: compressed.blob,
+                mimeType: compressed.mimeType,
+                previewUrl: URL.createObjectURL(compressed.blob),
+                createdAt: Date.now(),
+              }
+            : p,
+        ),
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to rotate photo');
     } finally {
       setBusy(false);
     }
@@ -253,7 +285,7 @@ export function PhotoCapture({ photos, onChange }: Props) {
                 {PHOTO_TYPE_LABELS[photo.photoType]}
               </span>
             </button>
-            <div className="photo-tile__bar">
+            <div className={`photo-tile__bar ${isDesktop ? 'photo-tile__bar--desktop' : ''}`}>
               <button
                 type="button"
                 className="btn btn--secondary btn--small"
@@ -264,6 +296,16 @@ export function PhotoCapture({ photos, onChange }: Props) {
               >
                 Crop
               </button>
+              {isDesktop && (
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--small"
+                  title="Rotate clockwise"
+                  onClick={() => void rotatePhoto(photo.localId, 90)}
+                >
+                  ↻
+                </button>
+              )}
               <label className="btn btn--ghost btn--small">
                 Replace
                 <input

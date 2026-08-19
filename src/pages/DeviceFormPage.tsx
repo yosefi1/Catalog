@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { PhotoCapture } from '../components/PhotoCapture';
+import { DeviceNavButtons } from '../components/DeviceNavButtons';
 import { SuggestInput } from '../components/SuggestInput';
 import {
   createDevice,
+  formatDisplayNumber,
   getDevice,
   peekNextInventoryId,
   updateDevice,
@@ -242,7 +244,7 @@ function DeviceFormEditor({
     <div className={`page device-form-page${photos.length ? ' has-photos' : ''}`}>
       <div className="page-heading">
         <div>
-          <p className="inv-id">{inventoryId}</p>
+          <p className="inv-id">{formatDisplayNumber(inventoryId)}</p>
           <h1>{isNew ? 'Add Device' : 'Edit Device'}</h1>
         </div>
         {restored && <span className="draft-pill">Draft restored</span>}
@@ -387,6 +389,8 @@ function DeviceFormEditor({
           )}
         </section>
       </form>
+
+      {!isNew && deviceId !== undefined && <DeviceNavButtons deviceId={deviceId} edit />}
 
       {!isNew && deviceId !== undefined && (
         <div className="danger-zone">

@@ -1,23 +1,37 @@
 import { useEffect, useMemo, useState } from 'react';
 import { DeviceList, type ThumbSize } from '../components/DeviceList';
-import { defaultFilters, useDevices, useFilterOptions } from '../hooks/useDevices';
+import { DeviceTableList } from '../components/DeviceTableList';
+import {
+  defaultFilters,
+  INVENTORY_FILTERS_KEY,
+  INVENTORY_VIEW_KEY,
+  parseStoredFilters,
+  useDevices,
+  useFilterOptions,
+} from '../hooks/useDevices';
 import { getMeta, setMeta } from '../db/database';
-import { syncIfEnabledQuiet } from '../services/cloudSync';
 import type { InventoryFilters, SortField } from '../types/device';
 
 const THUMB_KEY = 'inventoryThumbSize';
+
+type ViewMode = 'cards' | 'table';
 
 function asThumbSize(value: string | number | boolean): ThumbSize {
   if (value === 'small' || value === 'medium' || value === 'large') return value;
   return 'medium';
 }
 
+function asViewMode(value: string | number | boolean): ViewMode {
+  return value === 'table' ? 'table' : 'cards';
+}
+
 export function InventoryPage() {
   const [filters, setFilters] = useState<InventoryFilters>(defaultFilters);
+  const [filtersReady, setFiltersReady] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
-  const [syncNote, setSyncNote] = useState<string | null>(null);
   const [thumbSize, setThumbSize] = useState<ThumbSize>('medium');
-  const devices = useDevices(filters);
+  const [viewMode, setViewMode] = useState<ViewMode>('cards');
+  const devices = useDevices(filtersReady ? filters : defaultFilters);
   const options = useFilterOptions();
 
   const countLabel = useMemo(() => {
@@ -26,61 +40,62 @@ export function InventoryPage() {
   }, [devices]);
 
   useEffect(() => {
-    void getMeta(THUMB_KEY, 'medium').then((v) => setThumbSize(asThumbSize(v)));
+    void Promise.all([
+      getMeta(THUMB_KEY, 'medium'),
+      getMeta(INVENTORY_VIEW_KEY, 'cards'),
+      getMeta(INVENTORY_FILTERS_KEY, ''),
+    ]).then(([thumb, view, storedFilters]) => {
+      setThumbSize(asThumbSize(thumb));
+      setViewMode(asViewMode(view));
+      setFilters(parseStoredFilters(storedFilters));
+      setFiltersReady(true);
+    });
   }, []);
+
+  useEffect(() => {
+    if (!filtersReady) return;
+    void setMeta(INVENTORY_FILTERS_KEY, JSON.stringify(filters));
+  }, [filters, filtersReady]);
 
   function changeThumbSize(size: ThumbSize) {
     setThumbSize(size);
     void setMeta(THUMB_KEY, size);
   }
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function pull() {
-      setSyncNote('Syncing…');
-      const result = await syncIfEnabledQuiet();
-      if (cancelled) return;
-      if (!result) {
-        setSyncNote(null);
-        return;
-      }
-      setSyncNote(result.ok ? 'Cloud synced' : result.message);
-      window.setTimeout(() => {
-        if (!cancelled) setSyncNote(null);
-      }, 2500);
-    }
-
-    void pull();
-
-    // Keep open screens roughly live without manual Sync now
-    const intervalId = window.setInterval(() => {
-      void pull();
-    }, 20_000);
-
-    function onVisible() {
-      if (document.visibilityState === 'visible') void pull();
-    }
-    function onOnline() {
-      void pull();
-    }
-
-    document.addEventListener('visibilitychange', onVisible);
-    window.addEventListener('online', onOnline);
-    window.addEventListener('focus', onVisible);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-      document.removeEventListener('visibilitychange', onVisible);
-      window.removeEventListener('online', onOnline);
-      window.removeEventListener('focus', onVisible);
-    };
-  }, []);
+  function changeViewMode(mode: ViewMode) {
+    setViewMode(mode);
+    void setMeta(INVENTORY_VIEW_KEY, mode);
+  }
 
   function patch(partial: Partial<InventoryFilters>) {
     setFilters((f) => ({ ...f, ...partial }));
   }
+
+  function applyLocation(location: string) {
+    patch({ location });
+  }
+
+  function applyRecent() {
+    patch({
+      sortBy: 'updatedAt',
+      sortDir: 'desc',
+    });
+  }
+
+  function applyAll() {
+    patch({
+      location: '',
+      manufacturer: '',
+      deviceType: '',
+      room: '',
+      search: '',
+      sortBy: 'inventoryId',
+      sortDir: 'asc',
+    });
+  }
+
+  const recentActive =
+    filters.sortBy === 'updatedAt' && filters.sortDir === 'desc' && !filters.location;
 
   return (
     <div className="page inventory-page">
@@ -89,14 +104,56 @@ export function InventoryPage() {
           <h1>Inventory</h1>
           <p>{countLabel}</p>
         </div>
-        {syncNote && <span className="draft-pill">{syncNote}</span>}
+        <div className="view-mode-toggle" role="group" aria-label="View mode">
+          <button
+            type="button"
+            className={`view-mode-toggle__btn ${viewMode === 'cards' ? 'is-active' : ''}`}
+            onClick={() => changeViewMode('cards')}
+          >
+            Cards
+          </button>
+          <button
+            type="button"
+            className={`view-mode-toggle__btn ${viewMode === 'table' ? 'is-active' : ''}`}
+            onClick={() => changeViewMode('table')}
+          >
+            List
+          </button>
+        </div>
+      </div>
+
+      <div className="quick-filters">
+        <button
+          type="button"
+          className={`quick-filter-chip ${!filters.location && !recentActive ? 'is-active' : ''}`}
+          onClick={applyAll}
+        >
+          All
+        </button>
+        <button
+          type="button"
+          className={`quick-filter-chip ${recentActive ? 'is-active' : ''}`}
+          onClick={applyRecent}
+        >
+          Recent
+        </button>
+        {options.locations.map((loc) => (
+          <button
+            key={loc}
+            type="button"
+            className={`quick-filter-chip ${filters.location === loc ? 'is-active' : ''}`}
+            onClick={() => applyLocation(loc)}
+          >
+            {loc}
+          </button>
+        ))}
       </div>
 
       <div className="search-block sticky-search">
         <input
           className="field__input search-input"
           type="search"
-          placeholder="Search ID, serial, name, location…"
+          placeholder="Search #, serial, name, location…"
           value={filters.search}
           onChange={(e) => patch({ search: e.target.value })}
           enterKeyHint="search"
@@ -106,28 +163,30 @@ export function InventoryPage() {
           className="btn btn--secondary"
           onClick={() => setShowFilters((v) => !v)}
         >
-          {showFilters ? 'Hide filters' : 'Filters & sort'}
+          {showFilters ? 'Hide filters' : 'More filters'}
         </button>
-        <div className="thumb-size-toggle" role="group" aria-label="Photo size">
-          {(
-            [
-              ['small', 'S', 'Small'],
-              ['medium', 'M', 'Medium'],
-              ['large', 'L', 'Large'],
-            ] as const
-          ).map(([size, label, title]) => (
-            <button
-              key={size}
-              type="button"
-              title={title}
-              aria-label={title}
-              className={`thumb-size-toggle__btn ${thumbSize === size ? 'is-active' : ''}`}
-              onClick={() => changeThumbSize(size)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        {viewMode === 'cards' && (
+          <div className="thumb-size-toggle" role="group" aria-label="Photo size">
+            {(
+              [
+                ['small', 'S', 'Small'],
+                ['medium', 'M', 'Medium'],
+                ['large', 'L', 'Large'],
+              ] as const
+            ).map(([size, label, title]) => (
+              <button
+                key={size}
+                type="button"
+                title={title}
+                aria-label={title}
+                className={`thumb-size-toggle__btn ${thumbSize === size ? 'is-active' : ''}`}
+                onClick={() => changeThumbSize(size)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {showFilters && (
@@ -199,7 +258,7 @@ export function InventoryPage() {
               value={filters.sortBy}
               onChange={(e) => patch({ sortBy: e.target.value as SortField })}
             >
-              <option value="inventoryId">Inventory ID</option>
+              <option value="inventoryId">#</option>
               <option value="deviceName">Device Name</option>
               <option value="manufacturer">Manufacturer</option>
               <option value="model">Model</option>
@@ -224,8 +283,10 @@ export function InventoryPage() {
         </div>
       )}
 
-      {devices === undefined ? (
+      {!filtersReady || devices === undefined ? (
         <p className="muted">Loading inventory…</p>
+      ) : viewMode === 'table' ? (
+        <DeviceTableList devices={devices} />
       ) : (
         <DeviceList devices={devices} thumbSize={thumbSize} />
       )}

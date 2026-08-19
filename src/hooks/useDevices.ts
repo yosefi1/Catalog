@@ -14,6 +14,19 @@ export const defaultFilters: InventoryFilters = {
   sortDir: 'asc',
 };
 
+export const INVENTORY_FILTERS_KEY = 'inventoryFilters';
+export const INVENTORY_VIEW_KEY = 'inventoryViewMode';
+
+export function parseStoredFilters(raw: string | number | boolean): InventoryFilters {
+  if (typeof raw !== 'string' || !raw) return defaultFilters;
+  try {
+    const parsed = JSON.parse(raw) as Partial<InventoryFilters>;
+    return { ...defaultFilters, ...parsed };
+  } catch {
+    return defaultFilters;
+  }
+}
+
 export function useDevices(filters: InventoryFilters): Device[] | undefined {
   const [devices, setDevices] = useState<Device[] | undefined>(undefined);
 

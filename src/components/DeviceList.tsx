@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { formatDisplayNumber } from '../db/devices';
 import type { Device } from '../types/device';
 import { getMainPhotoId, usePhotoUrl } from '../hooks/usePhotoUrl';
 import { deleteDeviceEverywhere } from '../services/cloudSync';
@@ -77,7 +78,7 @@ export function DeviceList({ devices, thumbSize = 'medium' }: Props) {
             )}
             <div className="device-row__body">
               <div className="device-row__title">
-                <span className="inv-id">{d.inventoryId}</span>
+                <span className="inv-id">{formatDisplayNumber(d.inventoryId)}</span>
                 <span className="device-name">{d.deviceName || 'Untitled'}</span>
               </div>
               <div className="device-row__meta">

@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { PhotoCropper } from '../components/PhotoCropper';
+import { DeviceNavButtons } from '../components/DeviceNavButtons';
 import { PhotoLightbox } from '../components/PhotoLightbox';
 import { PhotoSizeToggle } from '../components/PhotoSizeToggle';
 import type { ThumbSize } from '../components/DeviceList';
 import { getMeta, setMeta } from '../db/database';
-import { getDevice, updateDevicePhotoBlob, deleteDevicePhoto } from '../db/devices';
+import { formatDisplayNumber, getDevice, updateDevicePhotoBlob, deleteDevicePhoto } from '../db/devices';
 import { compressPhoto } from '../services/photoCompression';
+import { rotateBlob } from '../services/cropImage';
 import { syncDeviceAfterSave } from '../services/cloudSync';
+import { useMediaDesktop } from '../hooks/useMediaDesktop';
 import { formatDate } from '../services/utils';
 import { PHOTO_TYPE_LABELS, sortPhotosForDisplay, type DeviceWithPhotos } from '../types/device';
 
@@ -31,6 +34,7 @@ export function DeviceDetailPage() {
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [gallerySize, setGallerySize] = useState<ThumbSize>('medium');
+  const isDesktop = useMediaDesktop();
 
   useEffect(() => {
     void getMeta(GALLERY_SIZE_KEY, 'medium').then((v) =>
@@ -96,6 +100,34 @@ export function DeviceDetailPage() {
     }
   }
 
+  async function applyDetailRotate(index: number, degrees: 90 | -90) {
+    if (!device) return;
+    const photo = device.photos[index];
+    if (photo?.id === undefined) return;
+    setCropBusy(true);
+    try {
+      const rotated = await rotateBlob(photo.blob, degrees);
+      const compressed = await compressPhoto(rotated, photo.photoType);
+      await updateDevicePhotoBlob(
+        photo.id,
+        {
+          blob: compressed.blob,
+          mimeType: compressed.mimeType,
+          width: compressed.width,
+          height: compressed.height,
+        },
+        { deviceId, index },
+      );
+      const fresh = await getDevice(deviceId);
+      if (fresh) showDevice(fresh);
+      void syncDeviceAfterSave(deviceId);
+    } catch (e) {
+      setPhotoError(e instanceof Error ? e.message : 'Failed to rotate photo');
+    } finally {
+      setCropBusy(false);
+    }
+  }
+
   async function onDeletePhoto(photoId: number) {
     setCropBusy(true);
     try {
@@ -131,7 +163,7 @@ export function DeviceDetailPage() {
     <div className="page device-detail-page">
       <div className="page-heading">
         <div>
-          <p className="inv-id">{device.inventoryId}</p>
+          <p className="inv-id">{formatDisplayNumber(device.inventoryId)}</p>
           <h1>{device.deviceName || 'Untitled'}</h1>
         </div>
       </div>
@@ -216,7 +248,7 @@ export function DeviceDetailPage() {
                   {PHOTO_TYPE_LABELS[p.photoType]}
                 </span>
               </button>
-              <div className="photo-tile__bar photo-tile__bar--split">
+              <div className={`photo-tile__bar photo-tile__bar--split ${isDesktop ? 'photo-tile__bar--desktop' : ''}`}>
                 <button
                   type="button"
                   className="btn btn--secondary btn--small"
@@ -225,6 +257,17 @@ export function DeviceDetailPage() {
                 >
                   Crop
                 </button>
+                {isDesktop && (
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--small"
+                    title="Rotate clockwise"
+                    disabled={cropBusy}
+                    onClick={() => void applyDetailRotate(i, 90)}
+                  >
+                    ↻
+                  </button>
+                )}
                 {confirmPhotoId === p.id ? (
                   <>
                     <button
@@ -260,6 +303,8 @@ export function DeviceDetailPage() {
           {!device.photos.length && <p className="muted">No photos</p>}
         </div>
       </section>
+
+      <DeviceNavButtons deviceId={device.id} />
 
       <div className="sticky-actions" role="toolbar" aria-label="Device actions">
         <Link className="btn btn--ghost btn--large" to="/">

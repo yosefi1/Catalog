@@ -34,6 +34,12 @@ export function parseInventoryIdNumber(inventoryId: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
+/** UI label: EQ-0003 → 3. Keeps stored inventoryId unchanged. */
+export function formatDisplayNumber(inventoryId: string): string {
+  const n = parseInventoryIdNumber(inventoryId);
+  return n !== null ? String(n) : inventoryId;
+}
+
 /** Keep counter ahead of any existing inventory IDs (e.g. after merge import). */
 export async function ensureCounterPastExisting(): Promise<void> {
   const devices = await db.devices.toArray();
@@ -202,6 +208,7 @@ function matchesSearch(device: Device, q: string): boolean {
   if (!q) return true;
   const hay = [
     device.inventoryId,
+    formatDisplayNumber(device.inventoryId),
     device.deviceName,
     device.manufacturer,
     device.model,
