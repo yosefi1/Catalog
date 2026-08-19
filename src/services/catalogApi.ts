@@ -180,6 +180,6 @@ export async function replacePhotoBlob(
 }
 
 export async function testConnection(): Promise<string> {
-  const devices = await fetchDevices();
-  return `Connected — ${devices.length} device${devices.length === 1 ? '' : 's'} on server.`;
+  const data = await apiFetch<{ ok: boolean; deviceCount: number }>('/api/health');
+  return `Connected — ${data.deviceCount} device${data.deviceCount === 1 ? '' : 's'} on server.`;
 }

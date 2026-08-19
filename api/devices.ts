@@ -4,16 +4,15 @@ import {
   parseBody,
   requireCatalogKey,
   setCors,
-} from '../_lib/auth';
+} from './_lib/auth';
 import {
-  attachPhotoUrls,
   deviceToRow,
   getServiceSupabase,
   peekNextInventoryId,
   rowToDevice,
   signedPhotoUrl,
   type ApiDevice,
-} from '../_lib/supabase';
+} from './_lib/supabase';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   setCors(res);
@@ -77,7 +76,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             _mainPath?: string;
           };
           if (_mainPath) {
-            rest.thumbnailUrl = await signedPhotoUrl(supabase, _mainPath);
+            try {
+              rest.thumbnailUrl = await signedPhotoUrl(supabase, _mainPath);
+            } catch {
+              /* missing file in storage — still list device */
+            }
           }
           return rest;
         }),

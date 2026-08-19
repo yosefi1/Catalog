@@ -1,6 +1,7 @@
 import { db } from '../db/database';
 import {
   createDeviceOnServer,
+  fetchDevice,
   fetchDevices,
   uploadPhoto,
 } from './catalogApi';
@@ -27,15 +28,29 @@ export async function migrateLocalToServer(
   let photos = 0;
 
   for (const local of localDevices) {
-    if (remoteIds.has(local.inventoryId)) {
-      skipped += 1;
-      onProgress?.(`Skip ${local.inventoryId} — already on server`);
-      continue;
-    }
+    const onServer = remoteIds.has(local.inventoryId);
 
-    onProgress?.(`Uploading ${local.inventoryId}…`);
-    const form = deviceToForm(local);
-    await createDeviceOnServer(form, local.inventoryId);
+    if (onServer) {
+      const remoteFull = await fetchDevice(local.inventoryId).catch(() => null);
+      const remotePhotoCount = remoteFull?.photos.length ?? 0;
+      const localPhotoCount =
+        local.id !== undefined
+          ? await db.photos.where('deviceId').equals(local.id).count()
+          : 0;
+
+      if (remotePhotoCount > 0 || localPhotoCount === 0) {
+        skipped += 1;
+        onProgress?.(`Skip ${local.inventoryId} — already on server`);
+        continue;
+      }
+
+      onProgress?.(`Upload photos for ${local.inventoryId} (metadata already on server)…`);
+    } else {
+      onProgress?.(`Uploading ${local.inventoryId}…`);
+      const form = deviceToForm(local);
+      await createDeviceOnServer(form, local.inventoryId);
+      uploaded += 1;
+    }
 
     if (local.id !== undefined) {
       const localPhotos = await db.photos
@@ -57,8 +72,6 @@ export async function migrateLocalToServer(
         photos += 1;
       }
     }
-
-    uploaded += 1;
   }
 
   notifyCatalogChanged();

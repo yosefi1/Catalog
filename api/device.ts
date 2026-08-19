@@ -4,13 +4,13 @@ import {
   parseBody,
   requireCatalogKey,
   setCors,
-} from '../_lib/auth';
+} from './_lib/auth';
 import {
   attachPhotoUrls,
   deviceToRow,
   getServiceSupabase,
   rowToDevice,
-} from '../_lib/supabase';
+} from './_lib/supabase';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   setCors(res);
