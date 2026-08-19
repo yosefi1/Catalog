@@ -1180,14 +1180,20 @@ textarea.field__input {
 .cropper {
   position: fixed;
   inset: 0;
-  z-index: 120;
+  z-index: 1000;
   width: 100%;
+  height: 100vh;
   height: 100dvh;
+  max-height: 100vh;
+  max-height: 100dvh;
   box-sizing: border-box;
   background: rgba(8, 14, 20, 0.94);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  padding: 8px 8px calc(12px + env(safe-area-inset-bottom, 0px));
+  padding:
+    calc(8px + env(safe-area-inset-top, 0px))
+    8px
+    calc(12px + env(safe-area-inset-bottom, 0px));
   touch-action: none;
   overscroll-behavior: none;
 }
@@ -1228,10 +1234,10 @@ textarea.field__input {
   width: 100%;
   height: 100%;
   display: block;
-  max-width: none;
-  max-height: none;
+  object-fit: contain;
   user-select: none;
   pointer-events: none;
+  -webkit-user-drag: none;
 }
 
 .cropper__box {

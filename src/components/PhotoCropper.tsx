@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { clampCrop, cropBlob, type PixelCrop } from '../services/cropImage';
 
 type Handle = 'move' | 'nw' | 'ne' | 'sw' | 'se';
@@ -25,12 +26,25 @@ export function PhotoCropper({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [blob, setBlob] = useState<Blob | null>(source ?? null);
+  const [displayUrl, setDisplayUrl] = useState<string | null>(null);
   const drag = useRef<{
     handle: Handle;
     x: number;
     y: number;
     crop: PixelCrop;
   } | null>(null);
+
+  useEffect(() => {
+    if (!blob) {
+      setDisplayUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(blob);
+    setDisplayUrl(url);
+    return () => {
+      URL.revokeObjectURL(url);
+    };
+  }, [blob]);
 
   useEffect(() => {
     if (source) {
@@ -58,12 +72,11 @@ export function PhotoCropper({
   }
 
   useEffect(() => {
-    if (!blob) return;
-    let revoked = false;
-    const url = URL.createObjectURL(blob);
+    if (!displayUrl) return;
+    let cancelled = false;
     const img = new Image();
     img.onload = () => {
-      if (revoked) return;
+      if (cancelled) return;
       const w = img.naturalWidth;
       const h = img.naturalHeight;
       setNat({ w, h });
@@ -81,17 +94,16 @@ export function PhotoCropper({
           h,
         ),
       );
-      measureStage();
+      requestAnimationFrame(measureStage);
     };
     img.onerror = () => {
-      if (!revoked) setError('Failed to load photo');
+      if (!cancelled) setError('Failed to load photo');
     };
-    img.src = url;
+    img.src = displayUrl;
     return () => {
-      revoked = true;
-      URL.revokeObjectURL(url);
+      cancelled = true;
     };
-  }, [blob]);
+  }, [displayUrl]);
 
   useEffect(() => {
     measureStage();
@@ -100,11 +112,15 @@ export function PhotoCropper({
     const ro = new ResizeObserver(() => measureStage());
     ro.observe(el);
     window.addEventListener('resize', measureStage);
+    window.visualViewport?.addEventListener('resize', measureStage);
+    window.visualViewport?.addEventListener('scroll', measureStage);
     return () => {
       ro.disconnect();
       window.removeEventListener('resize', measureStage);
+      window.visualViewport?.removeEventListener('resize', measureStage);
+      window.visualViewport?.removeEventListener('scroll', measureStage);
     };
-  }, []);
+  }, [displayUrl]);
 
   useEffect(() => {
     const prev = document.body.style.overflow;
@@ -187,7 +203,7 @@ export function PhotoCropper({
     height: crop.height * scale,
   };
 
-  return (
+  const ui = (
     <div
       className="cropper"
       role="dialog"
@@ -205,9 +221,9 @@ export function PhotoCropper({
       </div>
 
       <div ref={stageRef} className="cropper__stage">
-        {visW > 0 && (
+        {visW > 0 && displayUrl && (
           <div className="cropper__fit" style={{ width: visW, height: visH }}>
-            <img src={src} alt="Crop" draggable={false} />
+            <img src={displayUrl} alt="Crop" draggable={false} />
             <div
               className="cropper__box"
               style={box}
@@ -244,4 +260,6 @@ export function PhotoCropper({
       </div>
     </div>
   );
+
+  return createPortal(ui, document.body);
 }
