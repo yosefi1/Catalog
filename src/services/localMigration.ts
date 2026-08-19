@@ -16,6 +16,14 @@ export async function countLocalDevices(): Promise<number> {
   }
 }
 
+export async function countLocalPhotos(): Promise<number> {
+  try {
+    return await db.photos.count();
+  } catch {
+    return 0;
+  }
+}
+
 export async function migrateLocalToServer(
   onProgress?: (msg: string) => void,
 ): Promise<{ uploaded: number; skipped: number; photos: number }> {
@@ -29,30 +37,40 @@ export async function migrateLocalToServer(
 
   for (const local of localDevices) {
     const onServer = remoteIds.has(local.inventoryId);
+    const localPhotoCount =
+      local.id !== undefined
+        ? await db.photos.where('deviceId').equals(local.id).count()
+        : 0;
 
+    let remotePhotoCount = 0;
     if (onServer) {
       const remoteFull = await fetchDevice(local.inventoryId).catch(() => null);
-      const remotePhotoCount = remoteFull?.photos.length ?? 0;
-      const localPhotoCount =
-        local.id !== undefined
-          ? await db.photos.where('deviceId').equals(local.id).count()
-          : 0;
+      remotePhotoCount = remoteFull?.photos.length ?? 0;
+    }
 
-      if (remotePhotoCount > 0 || localPhotoCount === 0) {
-        skipped += 1;
-        onProgress?.(`Skip ${local.inventoryId} — already on server`);
-        continue;
-      }
+    const needsDevice = !onServer;
+    const needsPhotos =
+      localPhotoCount > 0 &&
+      (!onServer || remotePhotoCount < localPhotoCount);
 
-      onProgress?.(`Upload photos for ${local.inventoryId} (metadata already on server)…`);
-    } else {
+    if (!needsDevice && !needsPhotos) {
+      skipped += 1;
+      onProgress?.(`Skip ${local.inventoryId} — already complete on server`);
+      continue;
+    }
+
+    if (needsDevice) {
       onProgress?.(`Uploading ${local.inventoryId}…`);
       const form = deviceToForm(local);
       await createDeviceOnServer(form, local.inventoryId);
       uploaded += 1;
+    } else if (needsPhotos) {
+      onProgress?.(
+        `Restoring ${localPhotoCount - remotePhotoCount} photo(s) for ${local.inventoryId}…`,
+      );
     }
 
-    if (local.id !== undefined) {
+    if (needsPhotos && local.id !== undefined) {
       const localPhotos = await db.photos
         .where('deviceId')
         .equals(local.id)

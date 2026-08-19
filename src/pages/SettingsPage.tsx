@@ -8,7 +8,7 @@ import {
 } from '../services/backup';
 import { testConnection } from '../services/catalogApi';
 import { getAccessKey, setAccessKey } from '../services/accessKey';
-import { countLocalDevices, migrateLocalToServer } from '../services/localMigration';
+import { countLocalDevices, countLocalPhotos, migrateLocalToServer } from '../services/localMigration';
 import { exportInventoryPackage } from '../services/exportCatalog';
 import {
   getStorageStats,
@@ -21,6 +21,7 @@ export function SettingsPage() {
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<BackupPreview | null>(null);
   const [localCount, setLocalCount] = useState(0);
+  const [localPhotoCount, setLocalPhotoCount] = useState(0);
   const [keyDraft, setKeyDraft] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -28,6 +29,7 @@ export function SettingsPage() {
     setStats(await getStorageStats());
     setKeyDraft(getAccessKey());
     setLocalCount(await countLocalDevices());
+    setLocalPhotoCount(await countLocalPhotos());
   }
 
   useEffect(() => {
@@ -64,8 +66,8 @@ export function SettingsPage() {
           <span>Old local devices</span>
         </div>
         <div className="stat-card">
-          <strong>{stats?.approxLabel ?? '…'}</strong>
-          <span>Storage</span>
+          <strong>{localPhotoCount}</strong>
+          <span>Old local photos</span>
         </div>
       </section>
 
@@ -118,12 +120,12 @@ export function SettingsPage() {
         </div>
       </section>
 
-      {localCount > 0 && (
+      {(localCount > 0 || localPhotoCount > 0) && (
         <section className="settings-section">
-          <h2>Upload old local data</h2>
+          <h2>Restore from this browser</h2>
           <p className="muted">
-            Found {localCount} device(s) still in this browser&apos;s old local database. Upload
-            them to the server (skips devices already there).
+            {localCount} device(s) and {localPhotoCount} photo(s) saved in this browser from before.
+            Uploads missing devices and photos to the server (keeps what is already complete).
           </p>
           <button
             type="button"
@@ -139,7 +141,7 @@ export function SettingsPage() {
               })
             }
           >
-            Upload local data to server
+            Upload / restore to server
           </button>
         </section>
       )}
