@@ -4,8 +4,8 @@ import {
   parseBody,
   requireCatalogKey,
   setCors,
-} from '../_lib/auth';
-import { getServiceSupabase } from '../_lib/supabase';
+} from '../_catalog';
+import { getServiceSupabase } from '../_catalog';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   setCors(res);

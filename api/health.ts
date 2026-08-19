@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { errMessage, requireCatalogKey, setCors } from './_lib/auth';
-import { getServiceSupabase } from './_lib/supabase';
+import { errMessage, requireCatalogKey, setCors } from './_catalog';
+import { getServiceSupabase } from './_catalog';
 
 /** Lightweight ping — use Settings → Test connection. */
 export default async function handler(req: VercelRequest, res: VercelResponse) {

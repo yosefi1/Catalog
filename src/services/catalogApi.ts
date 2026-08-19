@@ -7,6 +7,15 @@ import type {
   PhotoType,
 } from '../types/device';
 
+type SyncPullPhoto = {
+  id: string;
+  inventoryId: string;
+  photoType: string;
+  mimeType: string;
+  createdAt: number;
+  storagePath: string;
+};
+
 export class CatalogApiError extends Error {
   status: number;
 
@@ -37,6 +46,12 @@ async function apiFetch<T>(
   try {
     data = JSON.parse(text) as T & { error?: string };
   } catch {
+    if (text.includes('FUNCTION_INVOCATION_FAILED')) {
+      throw new CatalogApiError(
+        'Server error — wait 1 minute after deploy and try again.',
+        res.status,
+      );
+    }
     throw new CatalogApiError(
       `HTTP ${res.status}: ${text.slice(0, 240) || '(empty)'}`,
       res.status,
@@ -48,22 +63,65 @@ async function apiFetch<T>(
   return data;
 }
 
+async function syncPull(): Promise<{
+  devices: Device[];
+  photos: SyncPullPhoto[];
+}> {
+  return apiFetch('/api/sync', {
+    method: 'POST',
+    body: JSON.stringify({ action: 'pull' }),
+  });
+}
+
 export type DeviceListRow = Device & {
   thumbnailUrl?: string;
   mainPhotoId?: string;
 };
 
 export async function fetchDevices(): Promise<DeviceListRow[]> {
-  const data = await apiFetch<{ devices: DeviceListRow[] }>('/api/devices');
-  return data.devices;
+  try {
+    const data = await apiFetch<{ devices: DeviceListRow[] }>('/api/devices');
+    return data.devices;
+  } catch {
+    const remote = await syncPull();
+    return remote.devices.map((d) => ({ ...d }));
+  }
 }
 
 export async function fetchDevice(inventoryId: string): Promise<DeviceWithPhotos> {
-  const data = await apiFetch<{
-    device: Device;
-    photos: DevicePhoto[];
-  }>(`/api/device?inventoryId=${encodeURIComponent(inventoryId)}`);
-  return { ...data.device, photos: data.photos };
+  try {
+    const data = await apiFetch<{
+      device: Device;
+      photos: DevicePhoto[];
+    }>(`/api/device?inventoryId=${encodeURIComponent(inventoryId)}`);
+    return { ...data.device, photos: data.photos };
+  } catch {
+    const remote = await syncPull();
+    const device = remote.devices.find((d) => d.inventoryId === inventoryId);
+    if (!device) throw new CatalogApiError('Device not found', 404);
+    const metas = remote.photos.filter((p) => p.inventoryId === inventoryId);
+    const photos: DevicePhoto[] = [];
+    for (const pm of metas) {
+      const dl = await apiFetch<{ dataBase64: string; mimeType: string }>(
+        '/api/sync',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            action: 'downloadPhoto',
+            storagePath: pm.storagePath,
+          }),
+        },
+      );
+      photos.push({
+        id: pm.id,
+        photoType: pm.photoType as PhotoType,
+        mimeType: dl.mimeType || pm.mimeType,
+        url: `data:${dl.mimeType || pm.mimeType};base64,${dl.dataBase64}`,
+        createdAt: pm.createdAt,
+      });
+    }
+    return { ...device, photos };
+  }
 }
 
 export async function createDeviceOnServer(
@@ -180,6 +238,11 @@ export async function replacePhotoBlob(
 }
 
 export async function testConnection(): Promise<string> {
-  const data = await apiFetch<{ ok: boolean; deviceCount: number }>('/api/health');
-  return `Connected — ${data.deviceCount} device${data.deviceCount === 1 ? '' : 's'} on server.`;
+  try {
+    const data = await apiFetch<{ ok: boolean; deviceCount: number }>('/api/health');
+    return `Connected — ${data.deviceCount} device${data.deviceCount === 1 ? '' : 's'} on server.`;
+  } catch {
+    const remote = await syncPull();
+    return `Connected — ${remote.devices.length} device${remote.devices.length === 1 ? '' : 's'} on server.`;
+  }
 }

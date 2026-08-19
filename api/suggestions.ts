@@ -3,8 +3,8 @@ import {
   errMessage,
   requireCatalogKey,
   setCors,
-} from './_lib/auth';
-import { getServiceSupabase } from './_lib/supabase';
+} from './_catalog';
+import { getServiceSupabase } from './_catalog';
 
 const ALLOWED = new Set(['location', 'manufacturer', 'deviceType', 'room']);
 
