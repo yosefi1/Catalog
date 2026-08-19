@@ -13,7 +13,7 @@ import {
 } from '../db/devices';
 import { compressPhoto } from '../services/photoCompression';
 import { rotateBlob } from '../services/cropImage';
-import { useMediaDesktop } from '../hooks/useMediaDesktop';
+import { PhotoRotateButtons } from '../components/PhotoRotateButtons';
 import { formatDate } from '../services/utils';
 import { PHOTO_TYPE_LABELS, sortPhotosForDisplay, type DeviceWithPhotos } from '../types/device';
 import { deviceLinkState, type DeviceRouteState } from '../services/deviceRouteState';
@@ -43,7 +43,6 @@ export function DeviceDetailPage() {
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [gallerySize, setGallerySize] = useState<ThumbSize>('medium');
-  const isDesktop = useMediaDesktop();
 
   useEffect(() => {
     void getMeta(GALLERY_SIZE_KEY, 'medium').then((v) =>
@@ -244,7 +243,7 @@ export function DeviceDetailPage() {
                   {PHOTO_TYPE_LABELS[p.photoType]}
                 </span>
               </button>
-              <div className={`photo-tile__bar photo-tile__bar--split ${isDesktop ? 'photo-tile__bar--desktop' : ''}`}>
+              <div className="photo-tile__bar photo-tile__bar--split photo-tile__bar--desktop">
                 <button
                   type="button"
                   className="btn btn--secondary btn--small"
@@ -253,17 +252,11 @@ export function DeviceDetailPage() {
                 >
                   Crop
                 </button>
-                {isDesktop && (
-                  <button
-                    type="button"
-                    className="btn btn--ghost btn--small"
-                    title="Rotate clockwise"
-                    disabled={cropBusy}
-                    onClick={() => void applyDetailRotate(i, 90)}
-                  >
-                    ↻
-                  </button>
-                )}
+                <PhotoRotateButtons
+                  disabled={cropBusy}
+                  onRotateLeft={() => void applyDetailRotate(i, -90)}
+                  onRotateRight={() => void applyDetailRotate(i, 90)}
+                />
                 {confirmPhotoId === p.id ? (
                   <>
                     <button

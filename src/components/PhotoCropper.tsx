@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { clampCrop, cropBlob, type PixelCrop } from '../services/cropImage';
+import { clampCrop, cropBlob, rotateBlob, type PixelCrop } from '../services/cropImage';
+import { PhotoRotateButtons } from './PhotoRotateButtons';
 
 type Handle = 'move' | 'nw' | 'ne' | 'sw' | 'se';
 
@@ -196,6 +197,19 @@ export function PhotoCropper({
     }
   }
 
+  async function rotate(degrees: 90 | -90) {
+    if (!blob || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setBlob(await rotateBlob(blob, degrees));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Rotate failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const box = {
     left: crop.x * scale,
     top: crop.y * scale,
@@ -215,6 +229,12 @@ export function PhotoCropper({
     >
       <div className="cropper__toolbar">
         <p>Drag the box or corners to crop</p>
+        <PhotoRotateButtons
+          disabled={busy || !blob}
+          size="large"
+          onRotateLeft={() => void rotate(-90)}
+          onRotateRight={() => void rotate(90)}
+        />
         <button type="button" className="lightbox__close" onClick={onCancel} disabled={busy}>
           Close
         </button>

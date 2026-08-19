@@ -11,8 +11,8 @@ import { compressPhoto } from '../services/photoCompression';
 import { rotateBlob } from '../services/cropImage';
 import { uid } from '../services/utils';
 import { getMeta, setMeta } from '../db/database';
-import { useMediaDesktop } from '../hooks/useMediaDesktop';
 import { PhotoCropper } from './PhotoCropper';
+import { PhotoRotateButtons } from './PhotoRotateButtons';
 import { PhotoLightbox } from './PhotoLightbox';
 import { PhotoSizeToggle } from './PhotoSizeToggle';
 import type { ThumbSize } from './DeviceList';
@@ -35,8 +35,6 @@ export function PhotoCapture({ photos, onChange }: Props) {
   const [autoCrop, setAutoCrop] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [gallerySize, setGallerySize] = useState<ThumbSize>('medium');
-  const isDesktop = useMediaDesktop();
-
   useEffect(() => {
     void getMeta(GALLERY_SIZE_KEY, 'medium').then((v) => {
       if (v === 'small' || v === 'medium' || v === 'large') setGallerySize(v);
@@ -285,7 +283,7 @@ export function PhotoCapture({ photos, onChange }: Props) {
                 {PHOTO_TYPE_LABELS[photo.photoType]}
               </span>
             </button>
-            <div className={`photo-tile__bar ${isDesktop ? 'photo-tile__bar--desktop' : ''}`}>
+            <div className="photo-tile__bar photo-tile__bar--desktop">
               <button
                 type="button"
                 className="btn btn--secondary btn--small"
@@ -296,16 +294,11 @@ export function PhotoCapture({ photos, onChange }: Props) {
               >
                 Crop
               </button>
-              {isDesktop && (
-                <button
-                  type="button"
-                  className="btn btn--ghost btn--small"
-                  title="Rotate clockwise"
-                  onClick={() => void rotatePhoto(photo.localId, 90)}
-                >
-                  ↻
-                </button>
-              )}
+              <PhotoRotateButtons
+                disabled={busy}
+                onRotateLeft={() => void rotatePhoto(photo.localId, -90)}
+                onRotateRight={() => void rotatePhoto(photo.localId, 90)}
+              />
               <label className="btn btn--ghost btn--small">
                 Replace
                 <input

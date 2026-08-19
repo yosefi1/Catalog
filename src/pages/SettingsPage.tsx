@@ -23,7 +23,10 @@ export function SettingsPage() {
   const [localCount, setLocalCount] = useState(0);
   const [localPhotoCount, setLocalPhotoCount] = useState(0);
   const [keyDraft, setKeyDraft] = useState('');
+  const [showKey, setShowKey] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const catalogUrl =
+    typeof window !== 'undefined' ? window.location.origin : '';
 
   async function refresh() {
     setStats(await getStorageStats());
@@ -116,6 +119,64 @@ export function SettingsPage() {
             }
           >
             Test connection
+          </button>
+        </div>
+      </section>
+
+      <section className="settings-section">
+        <h2>Share catalog access</h2>
+        <p className="muted">
+          Copy this for a manager or teammate. Same key as in Vercel{' '}
+          <code>CATALOG_ACCESS_KEY</code>.
+        </p>
+
+        <label className="field">
+          <span className="field__label">Catalog URL</span>
+          <input className="field__input" readOnly value={catalogUrl} />
+        </label>
+
+        <label className="field">
+          <span className="field__label">Access key</span>
+          <div className="confirm-row">
+            <input
+              className="field__input"
+              type={showKey ? 'text' : 'password'}
+              autoComplete="off"
+              value={keyDraft}
+              readOnly
+            />
+            <button
+              type="button"
+              className="btn btn--ghost"
+              onClick={() => setShowKey((v) => !v)}
+            >
+              {showKey ? 'Hide' : 'Show'}
+            </button>
+          </div>
+        </label>
+
+        <div className="confirm-row">
+          <button
+            type="button"
+            className="btn btn--secondary"
+            disabled={!keyDraft.trim()}
+            onClick={() => {
+              const text = [
+                'Equipment Catalog — access',
+                '',
+                `URL: ${catalogUrl}`,
+                `Access key: ${keyDraft.trim()}`,
+                '',
+                '1. Open the URL in Safari or Chrome',
+                '2. Enter the access key when prompted (or Settings → Save key)',
+                '3. Browse inventory, photos, and export from Settings',
+              ].join('\n');
+              void navigator.clipboard.writeText(text).then(() => {
+                setStatus('Access info copied — paste into email or chat');
+              });
+            }}
+          >
+            Copy access info
           </button>
         </div>
       </section>

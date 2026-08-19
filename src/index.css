@@ -685,6 +685,23 @@ textarea.field__input {
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
+.photo-rotate-btns {
+  display: flex;
+  gap: 4px;
+  width: 100%;
+}
+
+.photo-rotate-btns .photo-rotate-btn {
+  flex: 1;
+  min-width: 0;
+  padding-inline: 4px;
+}
+
+.photo-rotate-icon {
+  display: block;
+  margin: 0 auto;
+}
+
 .quick-filters {
   display: flex;
   flex-wrap: wrap;
@@ -1203,12 +1220,25 @@ textarea.field__input {
   align-items: center;
   gap: 8px;
   padding: 8px;
+  flex-wrap: wrap;
 }
 
 .cropper__toolbar p {
   margin: 0;
   color: #fff;
   font-weight: 650;
+  flex: 1 1 120px;
+}
+
+.cropper__toolbar .photo-rotate-btns {
+  flex: 0 0 auto;
+  width: auto;
+}
+
+.cropper__toolbar .photo-rotate-btns .photo-rotate-btn {
+  flex: 0 0 auto;
+  min-width: 44px;
+  color: #fff;
 }
 
 .cropper__toolbar .lightbox__close {
