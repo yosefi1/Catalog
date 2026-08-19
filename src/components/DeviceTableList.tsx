@@ -1,101 +1,287 @@
 import { Fragment, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { formatDisplayNumber, getDevice } from '../db/devices';
-import { deleteDeviceEverywhere } from '../services/cloudSync';
-import { formatDate } from '../services/utils';
+import { PhotoLightbox } from './PhotoLightbox';
 import {
+  deviceToForm,
   PHOTO_TYPE_LABELS,
   sortPhotosForDisplay,
   type Device,
+  type DeviceFormState,
   type DeviceWithPhotos,
+  type SortDirection,
+  type SortField,
 } from '../types/device';
+import { formatDisplayNumber, getDevice, updateDeviceFields } from '../db/devices';
+import { deleteDeviceEverywhere, syncDeviceAfterSave } from '../services/cloudSync';
+import { formatDateShort } from '../services/utils';
+
+const COL_COUNT = 8;
 
 interface Props {
   devices: Device[];
+  sortBy: SortField;
+  sortDir: SortDirection;
+  onSort: (field: SortField) => void;
+  editAll: boolean;
 }
 
-function ExpandedDevice({ deviceId }: { deviceId: number }) {
+function SortHeader({
+  label,
+  field,
+  sortBy,
+  sortDir,
+  onSort,
+}: {
+  label: string;
+  field: SortField;
+  sortBy: SortField;
+  sortDir: SortDirection;
+  onSort: (field: SortField) => void;
+}) {
+  const active = sortBy === field;
+  return (
+    <th scope="col">
+      <button
+        type="button"
+        className={`device-table__sort ${active ? `is-${sortDir}` : ''}`}
+        onClick={() => onSort(field)}
+      >
+        {label}
+        {active && <span aria-hidden="true">{sortDir === 'asc' ? ' ↑' : ' ↓'}</span>}
+      </button>
+    </th>
+  );
+}
+
+function ExpandedDevice({
+  deviceId,
+  editMode,
+}: {
+  deviceId: number;
+  editMode: boolean;
+}) {
   const [device, setDevice] = useState<DeviceWithPhotos | null>(null);
   const [urls, setUrls] = useState<string[]>([]);
+  const [form, setForm] = useState<DeviceFormState | null>(null);
+  const [lightbox, setLightbox] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveNote, setSaveNote] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  function load() {
+    void getDevice(deviceId).then((d) => {
+      if (!d) return;
+      const sorted = sortPhotosForDisplay(d.photos);
+      const photoUrls = sorted.map((p) => URL.createObjectURL(p.blob));
+      setDevice({ ...d, photos: sorted });
+      setUrls((prev) => {
+        prev.forEach((u) => URL.revokeObjectURL(u));
+        return photoUrls;
+      });
+      setForm(deviceToForm(d));
+    });
+  }
 
   useEffect(() => {
-    let cancelled = false;
-    const created: string[] = [];
-
-    void getDevice(deviceId).then((d) => {
-      if (cancelled || !d) return;
-      const sorted = sortPhotosForDisplay(d.photos);
-      const photoUrls = sorted.map((p) => {
-        const u = URL.createObjectURL(p.blob);
-        created.push(u);
-        return u;
-      });
-      setDevice({ ...d, photos: sorted });
-      setUrls(photoUrls);
-    });
-
+    load();
     return () => {
-      cancelled = true;
-      created.forEach((u) => URL.revokeObjectURL(u));
+      setUrls((prev) => {
+        prev.forEach((u) => URL.revokeObjectURL(u));
+        return [];
+      });
     };
   }, [deviceId]);
 
-  if (!device) return <td colSpan={7} className="table-expand muted">Loading…</td>;
+  function patch<K extends keyof DeviceFormState>(key: K, value: DeviceFormState[K]) {
+    setForm((f) => (f ? { ...f, [key]: value } : f));
+  }
+
+  async function save() {
+    if (!form) return;
+    setSaving(true);
+    setError(null);
+    setSaveNote(null);
+    try {
+      await updateDeviceFields(deviceId, form);
+      void syncDeviceAfterSave(deviceId);
+      setSaveNote('Saved');
+      load();
+      window.setTimeout(() => setSaveNote(null), 2000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!device || !form) {
+    return (
+      <td colSpan={COL_COUNT} className="table-expand muted">
+        Loading…
+      </td>
+    );
+  }
 
   return (
-    <td colSpan={7} className="table-expand">
+    <td colSpan={COL_COUNT} className="table-expand">
       <div className="table-expand__grid">
-        <dl className="detail-grid detail-grid--compact">
-          <div>
-            <dt>Manufacturer</dt>
-            <dd>{device.manufacturer || '—'}</dd>
+        {editMode ? (
+          <div className="table-expand__form">
+            <label className="field">
+              <span className="field__label">Device Name</span>
+              <input
+                className="field__input"
+                value={form.deviceName}
+                onChange={(e) => patch('deviceName', e.target.value)}
+              />
+            </label>
+            <div className="field-row">
+              <label className="field">
+                <span className="field__label">Manufacturer</span>
+                <input
+                  className="field__input"
+                  value={form.manufacturer}
+                  onChange={(e) => patch('manufacturer', e.target.value)}
+                />
+              </label>
+              <label className="field">
+                <span className="field__label">Model</span>
+                <input
+                  className="field__input"
+                  value={form.model}
+                  onChange={(e) => patch('model', e.target.value)}
+                />
+              </label>
+            </div>
+            <div className="field-row">
+              <label className="field">
+                <span className="field__label">Serial</span>
+                <input
+                  className="field__input"
+                  value={form.serialNumber}
+                  onChange={(e) => patch('serialNumber', e.target.value)}
+                />
+              </label>
+              <label className="field">
+                <span className="field__label">Location</span>
+                <input
+                  className="field__input"
+                  value={form.location}
+                  onChange={(e) => patch('location', e.target.value)}
+                />
+              </label>
+            </div>
+            <label className="field">
+              <span className="field__label">Room</span>
+              <input
+                className="field__input"
+                value={form.room}
+                onChange={(e) => patch('room', e.target.value)}
+              />
+            </label>
+            <label className="field">
+              <span className="field__label">Notes</span>
+              <textarea
+                className="field__input"
+                rows={2}
+                value={form.notes}
+                onChange={(e) => patch('notes', e.target.value)}
+              />
+            </label>
+            {error && <p className="error-text">{error}</p>}
+            {saveNote && <p className="muted">{saveNote}</p>}
+            <button
+              type="button"
+              className="btn btn--primary btn--small"
+              disabled={saving}
+              onClick={() => void save()}
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
           </div>
-          <div>
-            <dt>Model</dt>
-            <dd>{device.model || '—'}</dd>
-          </div>
-          <div>
-            <dt>Serial</dt>
-            <dd>{device.serialNumber || '—'}</dd>
-          </div>
-          <div>
-            <dt>Location</dt>
-            <dd>{device.location || '—'}</dd>
-          </div>
-          <div>
-            <dt>Room</dt>
-            <dd>{device.room || '—'}</dd>
-          </div>
-          <div>
-            <dt>Modified</dt>
-            <dd>{formatDate(device.updatedAt)}</dd>
-          </div>
-        </dl>
-        {device.notes && <p className="table-expand__notes">{device.notes}</p>}
+        ) : (
+          <>
+            <dl className="detail-grid detail-grid--compact">
+              <div>
+                <dt>Manufacturer</dt>
+                <dd>{device.manufacturer || '—'}</dd>
+              </div>
+              <div>
+                <dt>Model</dt>
+                <dd>{device.model || '—'}</dd>
+              </div>
+              <div>
+                <dt>Serial</dt>
+                <dd>{device.serialNumber || '—'}</dd>
+              </div>
+              <div>
+                <dt>Location</dt>
+                <dd>{device.location || '—'}</dd>
+              </div>
+              <div>
+                <dt>Room</dt>
+                <dd>{device.room || '—'}</dd>
+              </div>
+              <div>
+                <dt>Added</dt>
+                <dd>{formatDateShort(device.createdAt)}</dd>
+              </div>
+            </dl>
+            {device.notes && <p className="table-expand__notes">{device.notes}</p>}
+          </>
+        )}
+
         {device.photos.length > 0 && (
           <div className="table-expand__photos">
             {device.photos.map((p, i) => (
               <figure key={p.id ?? i}>
-                <img src={urls[i]} alt={PHOTO_TYPE_LABELS[p.photoType]} />
+                <button
+                  type="button"
+                  className="table-expand__photo-btn"
+                  onClick={() => setLightbox(i)}
+                >
+                  <img src={urls[i]} alt={PHOTO_TYPE_LABELS[p.photoType]} />
+                </button>
                 <figcaption>{PHOTO_TYPE_LABELS[p.photoType]}</figcaption>
               </figure>
             ))}
           </div>
         )}
+
         <div className="table-expand__actions">
           <Link className="btn btn--primary btn--small" to={`/devices/${device.id}`}>
             Open full page
           </Link>
-          <Link className="btn btn--secondary btn--small" to={`/devices/${device.id}/edit`}>
-            Edit
-          </Link>
+          {!editMode && (
+            <Link className="btn btn--secondary btn--small" to={`/devices/${device.id}/edit`}>
+              Edit
+            </Link>
+          )}
         </div>
       </div>
+
+      {lightbox !== null && (
+        <PhotoLightbox
+          images={device.photos.map((p, i) => ({
+            src: urls[i],
+            label: PHOTO_TYPE_LABELS[p.photoType],
+          }))}
+          index={lightbox}
+          onClose={() => setLightbox(null)}
+          onIndexChange={setLightbox}
+        />
+      )}
     </td>
   );
 }
 
-export function DeviceTableList({ devices }: Props) {
+export function DeviceTableList({
+  devices,
+  sortBy,
+  sortDir,
+  onSort,
+  editAll,
+}: Props) {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [confirmId, setConfirmId] = useState<number | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
@@ -126,13 +312,20 @@ export function DeviceTableList({ devices }: Props) {
       <table className="device-table">
         <thead>
           <tr>
-            <th>#</th>
-            <th>Name</th>
-            <th>Manufacturer</th>
-            <th>Model</th>
-            <th>Serial</th>
-            <th>Location</th>
-            <th aria-label="Actions" />
+            <SortHeader label="#" field="inventoryId" sortBy={sortBy} sortDir={sortDir} onSort={onSort} />
+            <SortHeader label="Name" field="deviceName" sortBy={sortBy} sortDir={sortDir} onSort={onSort} />
+            <SortHeader
+              label="Manufacturer"
+              field="manufacturer"
+              sortBy={sortBy}
+              sortDir={sortDir}
+              onSort={onSort}
+            />
+            <SortHeader label="Model" field="model" sortBy={sortBy} sortDir={sortDir} onSort={onSort} />
+            <SortHeader label="Serial" field="serialNumber" sortBy={sortBy} sortDir={sortDir} onSort={onSort} />
+            <SortHeader label="Location" field="location" sortBy={sortBy} sortDir={sortDir} onSort={onSort} />
+            <SortHeader label="Added" field="createdAt" sortBy={sortBy} sortDir={sortDir} onSort={onSort} />
+            <th scope="col" aria-label="Actions" />
           </tr>
         </thead>
         <tbody>
@@ -153,6 +346,7 @@ export function DeviceTableList({ devices }: Props) {
                   <td>{d.model || '—'}</td>
                   <td>{d.serialNumber || '—'}</td>
                   <td>{d.location || '—'}</td>
+                  <td className="device-table__date">{formatDateShort(d.createdAt)}</td>
                   <td className="device-table__actions" onClick={(e) => e.stopPropagation()}>
                     {confirmId === d.id ? (
                       <>
@@ -185,7 +379,7 @@ export function DeviceTableList({ devices }: Props) {
                 </tr>
                 {open && d.id !== undefined && (
                   <tr className="device-table__expand-row">
-                    <ExpandedDevice deviceId={d.id} />
+                    <ExpandedDevice deviceId={d.id} editMode={editAll} />
                   </tr>
                 )}
               </Fragment>

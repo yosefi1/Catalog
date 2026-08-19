@@ -166,6 +166,7 @@ export function DeviceDetailPage() {
           <p className="inv-id">{formatDisplayNumber(device.inventoryId)}</p>
           <h1>{device.deviceName || 'Untitled'}</h1>
         </div>
+        <DeviceNavButtons deviceId={device.id} compact />
       </div>
 
       <div className="detail-serial">

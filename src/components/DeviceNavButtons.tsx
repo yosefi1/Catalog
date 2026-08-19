@@ -4,14 +4,17 @@ import { useDeviceNavigation } from '../hooks/useDeviceNavigation';
 interface Props {
   deviceId: number | undefined;
   edit?: boolean;
+  compact?: boolean;
 }
 
-export function DeviceNavButtons({ deviceId, edit = false }: Props) {
+export function DeviceNavButtons({ deviceId, edit = false, compact = false }: Props) {
   const { prevId, nextId } = useDeviceNavigation(deviceId);
   if (prevId === undefined && nextId === undefined) return null;
 
+  const cls = compact ? 'device-nav-row device-nav-row--compact' : 'device-nav-row';
+
   return (
-    <div className="device-nav-row">
+    <div className={cls}>
       {prevId !== undefined ? (
         <Link
           className="btn btn--ghost btn--small"

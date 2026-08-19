@@ -134,6 +134,7 @@ export type SortField =
   | 'manufacturer'
   | 'model'
   | 'serialNumber'
+  | 'location'
   | 'createdAt'
   | 'updatedAt';
 

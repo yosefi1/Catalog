@@ -71,6 +71,16 @@ export function InventoryPage() {
     setFilters((f) => ({ ...f, ...partial }));
   }
 
+  function handleSort(field: SortField) {
+    setFilters((f) => ({
+      ...f,
+      sortBy: field,
+      sortDir: f.sortBy === field ? (f.sortDir === 'asc' ? 'desc' : 'asc') : 'asc',
+    }));
+  }
+
+  const [editAll, setEditAll] = useState(false);
+
   function applyLocation(location: string) {
     patch({ location });
   }
@@ -165,6 +175,15 @@ export function InventoryPage() {
         >
           {showFilters ? 'Hide filters' : 'More filters'}
         </button>
+        {viewMode === 'table' && (
+          <button
+            type="button"
+            className={`btn btn--secondary ${editAll ? 'is-active-toggle' : ''}`}
+            onClick={() => setEditAll((v) => !v)}
+          >
+            {editAll ? 'Edit all: on' : 'Edit all'}
+          </button>
+        )}
         {viewMode === 'cards' && (
           <div className="thumb-size-toggle" role="group" aria-label="Photo size">
             {(
@@ -263,6 +282,7 @@ export function InventoryPage() {
               <option value="manufacturer">Manufacturer</option>
               <option value="model">Model</option>
               <option value="serialNumber">Serial</option>
+              <option value="location">Location</option>
               <option value="createdAt">Date Added</option>
               <option value="updatedAt">Last Modified</option>
             </select>
@@ -286,7 +306,13 @@ export function InventoryPage() {
       {!filtersReady || devices === undefined ? (
         <p className="muted">Loading inventory…</p>
       ) : viewMode === 'table' ? (
-        <DeviceTableList devices={devices} />
+        <DeviceTableList
+          devices={devices}
+          sortBy={filters.sortBy}
+          sortDir={filters.sortDir}
+          onSort={handleSort}
+          editAll={editAll}
+        />
       ) : (
         <DeviceList devices={devices} thumbSize={thumbSize} />
       )}

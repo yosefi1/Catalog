@@ -139,6 +139,28 @@ export async function updateDevice(
   return updated;
 }
 
+/** Update device fields only — photos unchanged. */
+export async function updateDeviceFields(
+  id: number,
+  form: DeviceFormState,
+): Promise<Device> {
+  const existing = await db.devices.get(id);
+  if (!existing) throw new Error('Device not found');
+
+  const updated: Device = {
+    ...existing,
+    ...form,
+    updatedAt: Date.now(),
+  };
+
+  await db.transaction('rw', db.devices, db.suggestions, async () => {
+    await db.devices.put(updated);
+    await recordSuggestionsFromDevice(form);
+  });
+
+  return updated;
+}
+
 export async function deleteDevice(id: number): Promise<void> {
   await db.transaction('rw', db.devices, db.photos, async () => {
     await db.photos.where('deviceId').equals(id).delete();

@@ -247,7 +247,12 @@ function DeviceFormEditor({
           <p className="inv-id">{formatDisplayNumber(inventoryId)}</p>
           <h1>{isNew ? 'Add Device' : 'Edit Device'}</h1>
         </div>
-        {restored && <span className="draft-pill">Draft restored</span>}
+        <div className="page-heading__aside">
+          {restored && <span className="draft-pill">Draft restored</span>}
+          {!isNew && deviceId !== undefined && (
+            <DeviceNavButtons deviceId={deviceId} edit compact />
+          )}
+        </div>
       </div>
 
       <form
