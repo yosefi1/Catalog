@@ -302,11 +302,24 @@ export async function replacePhotoBlob(
 }
 
 export async function testConnection(): Promise<string> {
+  let primaryError: unknown;
   try {
     const data = await apiFetch<{ ok: boolean; deviceCount: number }>('/api/health');
     return `Connected — ${data.deviceCount} device${data.deviceCount === 1 ? '' : 's'} on server.`;
-  } catch {
+  } catch (e) {
+    primaryError = e;
+  }
+  try {
     const remote = await syncPull();
-    return `Connected — ${remote.devices.length} device${remote.devices.length === 1 ? '' : 's'} on server.`;
+    return `Connected — ${remote.devices.length} device${remote.devices.length === 1 ? '' : 's'} on server (sync fallback).`;
+  } catch (fallbackError) {
+    const primary =
+      primaryError instanceof Error ? primaryError.message : String(primaryError);
+    const fallback =
+      fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+    throw new CatalogApiError(
+      `Health: ${primary} | Sync: ${fallback}`,
+      fallbackError instanceof CatalogApiError ? fallbackError.status : 500,
+    );
   }
 }

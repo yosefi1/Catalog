@@ -1,6 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { attachPhotoUrls, rowToDevice, signedPhotoUrl } from './_catalog';
 
 type SyncDevice = {
   inventoryId: string;
@@ -175,6 +174,40 @@ function extFromMime(mime: string): string {
 
 function randomId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+async function signedPhotoUrl(
+  supabase: SupabaseClient,
+  storagePath: string,
+  expiresIn = 3600,
+): Promise<string> {
+  const { data, error } = await supabase.storage
+    .from('device-photos')
+    .createSignedUrl(storagePath, expiresIn);
+  if (error || !data?.signedUrl) {
+    throw new Error(`Signed URL failed (${error?.message ?? 'unknown'})`);
+  }
+  return data.signedUrl;
+}
+
+async function attachPhotoUrls(
+  supabase: SupabaseClient,
+  rows: Array<Record<string, unknown>>,
+) {
+  return Promise.all(
+    rows.map(async (row) => {
+      const storagePath = String(row.storage_path);
+      return {
+        id: String(row.id),
+        inventoryId: String(row.inventory_id),
+        photoType: String(row.photo_type),
+        mimeType: String(row.mime_type ?? 'image/jpeg'),
+        createdAt: Number(row.created_at) || 0,
+        storagePath,
+        url: await signedPhotoUrl(supabase, storagePath),
+      };
+    }),
+  );
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
