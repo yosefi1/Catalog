@@ -11,7 +11,6 @@ import {
   type SortField,
 } from '../types/device';
 import {
-  deviceRouteId,
   deleteDevice,
   formatDisplayNumber,
   getDevice,
@@ -60,9 +59,11 @@ function SortHeader({
 
 function ExpandedDevice({
   inventoryId,
+  displayNumber,
   editMode,
 }: {
   inventoryId: string;
+  displayNumber: number;
   editMode: boolean;
 }) {
   const [device, setDevice] = useState<DeviceWithPhotos | null>(null);
@@ -240,11 +241,11 @@ function ExpandedDevice({
         )}
 
         <div className="table-expand__actions">
-          <Link className="btn btn--primary btn--small" to={`/devices/${deviceRouteId(device.inventoryId)}`}>
+          <Link className="btn btn--primary btn--small" to={`/devices/${displayNumber}`}>
             Open full page
           </Link>
           {!editMode && (
-            <Link className="btn btn--secondary btn--small" to={`/devices/${deviceRouteId(device.inventoryId)}/edit`}>
+            <Link className="btn btn--secondary btn--small" to={`/devices/${displayNumber}/edit`}>
               Edit
             </Link>
           )}
@@ -276,13 +277,17 @@ export function DeviceTableList({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   async function onDelete(device: DeviceListRow) {
     setBusyId(device.inventoryId);
+    setDeleteError(null);
     try {
       await deleteDevice(device.inventoryId);
       setConfirmId(null);
       if (expandedId === device.inventoryId) setExpandedId(null);
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : 'Delete failed');
     } finally {
       setBusyId(null);
     }
@@ -299,6 +304,7 @@ export function DeviceTableList({
 
   return (
     <div className="device-table-wrap">
+      {deleteError && <p className="error-text">{deleteError}</p>}
       <table className="device-table">
         <thead>
           <tr>
@@ -331,7 +337,7 @@ export function DeviceTableList({
                     )
                   }
                 >
-                  <td className="inv-id">{formatDisplayNumber(d.inventoryId)}</td>
+                  <td className="inv-id">{formatDisplayNumber(d)}</td>
                   <td>{d.deviceName || 'Untitled'}</td>
                   <td>{d.manufacturer || '—'}</td>
                   <td>{d.model || '—'}</td>
@@ -370,7 +376,11 @@ export function DeviceTableList({
                 </tr>
                 {open && (
                   <tr className="device-table__expand-row">
-                    <ExpandedDevice inventoryId={d.inventoryId} editMode={editAll} />
+                    <ExpandedDevice
+                      inventoryId={d.inventoryId}
+                      displayNumber={d.displayNumber}
+                      editMode={editAll}
+                    />
                   </tr>
                 )}
               </Fragment>

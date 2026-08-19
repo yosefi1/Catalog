@@ -7,10 +7,7 @@ import { PhotoSizeToggle } from '../components/PhotoSizeToggle';
 import type { ThumbSize } from '../components/DeviceList';
 import { getMeta, setMeta } from '../db/database';
 import {
-  deviceRouteId,
-  formatDisplayNumber,
   getDeviceByRoute,
-  resolveInventoryId,
   updateDevicePhotoBlob,
   deleteDevicePhoto,
 } from '../db/devices';
@@ -66,7 +63,6 @@ export function DeviceDetailPage() {
     void (async () => {
       try {
         if (!routeId) throw new Error('Device not found');
-        resolveInventoryId(routeId);
         const d = await getDeviceByRoute(routeId);
         if (cancelled) return;
         if (!d) {
@@ -159,7 +155,7 @@ export function DeviceDetailPage() {
     <div className="page device-detail-page">
       <div className="page-heading">
         <div>
-          <p className="inv-id">{formatDisplayNumber(device.inventoryId)}</p>
+          <p className="inv-id">#{routeId}</p>
           <h1>{device.deviceName || 'Untitled'}</h1>
         </div>
         <DeviceNavButtons routeId={routeId} compact />
@@ -309,13 +305,13 @@ export function DeviceDetailPage() {
         </Link>
         <Link
           className="btn btn--secondary btn--large"
-          to={`/devices/new?duplicate=${deviceRouteId(device.inventoryId)}`}
+          to={`/devices/new?duplicate=${routeId}`}
         >
           Duplicate
         </Link>
         <Link
           className="btn btn--primary btn--large"
-          to={`/devices/${deviceRouteId(device.inventoryId)}/edit`}
+          to={`/devices/${routeId}/edit`}
         >
           Edit
         </Link>

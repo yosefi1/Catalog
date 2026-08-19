@@ -76,11 +76,15 @@ async function syncPull(): Promise<{
 export type DeviceListRow = Device & {
   thumbnailUrl?: string;
   mainPhotoId?: string;
+  /** 1-based row # in current filtered/sorted list */
+  displayNumber: number;
 };
 
-export async function fetchDevices(): Promise<DeviceListRow[]> {
+type DeviceRowFromApi = Omit<DeviceListRow, 'displayNumber'>;
+
+export async function fetchDevices(): Promise<DeviceRowFromApi[]> {
   try {
-    const data = await apiFetch<{ devices: DeviceListRow[] }>('/api/devices');
+    const data = await apiFetch<{ devices: DeviceRowFromApi[] }>('/api/devices');
     return data.devices;
   } catch {
     const remote = await syncPull();
@@ -150,10 +154,17 @@ export async function updateDeviceOnServer(
 }
 
 export async function deleteDeviceOnServer(inventoryId: string): Promise<void> {
-  await apiFetch<{ ok: boolean }>(
-    `/api/device?inventoryId=${encodeURIComponent(inventoryId)}`,
-    { method: 'DELETE', body: '{}' },
-  );
+  try {
+    await apiFetch<{ ok: boolean }>(
+      `/api/device?inventoryId=${encodeURIComponent(inventoryId)}`,
+      { method: 'DELETE' },
+    );
+  } catch {
+    await apiFetch<{ ok: boolean }>('/api/sync', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'delete', inventoryIds: [inventoryId] }),
+    });
+  }
 }
 
 export async function peekNextInventoryIdFromServer(): Promise<string> {

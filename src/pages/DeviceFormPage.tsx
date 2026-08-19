@@ -5,7 +5,6 @@ import { DeviceNavButtons } from '../components/DeviceNavButtons';
 import { SuggestInput } from '../components/SuggestInput';
 import {
   createDevice,
-  deviceRouteId,
   formatDisplayNumber,
   getDeviceByRoute,
   peekNextInventoryId,
@@ -229,7 +228,7 @@ function DeviceFormEditor({
       } else {
         await updateDevice(editInventoryId, form, photoPayload, keepIds);
         await clearDraft();
-        navigate(`/devices/${deviceRouteId(editInventoryId)}`);
+        navigate(routeId ? `/devices/${routeId}` : '/');
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Save failed');
@@ -240,18 +239,22 @@ function DeviceFormEditor({
 
   async function discard() {
     await clearDraft();
-    navigate(
-      editInventoryId
-        ? `/devices/${deviceRouteId(editInventoryId)}`
-        : '/',
-    );
+    navigate(routeId ? `/devices/${routeId}` : '/');
   }
 
   async function onDelete() {
     if (!editInventoryId) return;
-    await deleteDevice(editInventoryId);
-    await clearDraft();
-    navigate('/');
+    setSaving(true);
+    setError(null);
+    try {
+      await deleteDevice(editInventoryId);
+      await clearDraft();
+      navigate('/');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Delete failed');
+    } finally {
+      setSaving(false);
+    }
   }
 
   if (!ready) return <p className="page muted">Restoring draft…</p>;
@@ -260,7 +263,9 @@ function DeviceFormEditor({
     <div className={`page device-form-page${photos.length ? ' has-photos' : ''}`}>
       <div className="page-heading">
         <div>
-          <p className="inv-id">{formatDisplayNumber(inventoryId)}</p>
+          <p className="inv-id">
+            {!isNew && routeId ? `#${routeId}` : formatDisplayNumber(inventoryId)}
+          </p>
           <h1>{isNew ? 'Add Device' : 'Edit Device'}</h1>
         </div>
         <div className="page-heading__aside">

@@ -13,12 +13,16 @@ interface Props {
 export function DeviceList({ devices, thumbSize = 'medium' }: Props) {
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   async function onDelete(device: DeviceListRow) {
     setBusyId(device.inventoryId);
+    setError(null);
     try {
       await deleteDevice(device.inventoryId);
       setConfirmId(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Delete failed');
     } finally {
       setBusyId(null);
     }
@@ -37,67 +41,70 @@ export function DeviceList({ devices, thumbSize = 'medium' }: Props) {
   }
 
   return (
-    <ul className="device-list">
-      {devices.map((d) => (
-        <li key={d.inventoryId} className={`device-item device-item--${thumbSize}`}>
-          <Link className="device-row" to={`/devices/${deviceRouteId(d.inventoryId)}`}>
-            {d.thumbnailUrl ? (
-              <img
-                className={`device-row__thumb size-${thumbSize}`}
-                src={d.thumbnailUrl}
-                alt=""
-                loading="lazy"
-              />
-            ) : (
-              <div className={`device-row__thumb placeholder size-${thumbSize}`}>
-                No photo
+    <>
+      {error && <p className="error-text">{error}</p>}
+      <ul className="device-list">
+        {devices.map((d) => (
+          <li key={d.inventoryId} className={`device-item device-item--${thumbSize}`}>
+            <Link className="device-row" to={`/devices/${deviceRouteId(d)}`}>
+              {d.thumbnailUrl ? (
+                <img
+                  className={`device-row__thumb size-${thumbSize}`}
+                  src={d.thumbnailUrl}
+                  alt=""
+                  loading="lazy"
+                />
+              ) : (
+                <div className={`device-row__thumb placeholder size-${thumbSize}`}>
+                  No photo
+                </div>
+              )}
+              <div className="device-row__body">
+                <div className="device-row__title">
+                  <span className="inv-id">#{formatDisplayNumber(d)}</span>
+                  <strong>{d.deviceName || 'Untitled'}</strong>
+                </div>
+                <p className="device-row__meta">
+                  {[d.manufacturer, d.model].filter(Boolean).join(' · ') || '—'}
+                </p>
+                <p className="device-row__meta">
+                  {d.location}
+                  {d.room ? ` · ${d.room}` : ''}
+                </p>
               </div>
-            )}
-            <div className="device-row__body">
-              <div className="device-row__title">
-                <span className="inv-id">#{formatDisplayNumber(d.inventoryId)}</span>
-                <strong>{d.deviceName || 'Untitled'}</strong>
-              </div>
-              <p className="device-row__meta">
-                {[d.manufacturer, d.model].filter(Boolean).join(' · ') || '—'}
-              </p>
-              <p className="device-row__meta">
-                {d.location}
-                {d.room ? ` · ${d.room}` : ''}
-              </p>
-            </div>
-          </Link>
-          <div className="device-item__actions">
-            {confirmId === d.inventoryId ? (
-              <>
+            </Link>
+            <div className="device-item__actions">
+              {confirmId === d.inventoryId ? (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn--danger btn--small"
+                    disabled={busyId === d.inventoryId}
+                    onClick={() => void onDelete(d)}
+                  >
+                    {busyId === d.inventoryId ? '…' : 'Confirm'}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--ghost btn--small"
+                    onClick={() => setConfirmId(null)}
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
                 <button
                   type="button"
                   className="btn btn--danger btn--small"
-                  disabled={busyId === d.inventoryId}
-                  onClick={() => void onDelete(d)}
+                  onClick={() => setConfirmId(d.inventoryId)}
                 >
-                  {busyId === d.inventoryId ? '…' : 'Confirm'}
+                  Delete
                 </button>
-                <button
-                  type="button"
-                  className="btn btn--ghost btn--small"
-                  onClick={() => setConfirmId(null)}
-                >
-                  Cancel
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                className="btn btn--danger btn--small"
-                onClick={() => setConfirmId(d.inventoryId)}
-              >
-                Delete
-              </button>
-            )}
-          </div>
-        </li>
-      ))}
-    </ul>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+    </>
   );
 }

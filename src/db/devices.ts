@@ -21,6 +21,32 @@ import {
   type DeviceListRow,
 } from '../services/catalogApi';
 import { notifyCatalogChanged } from '../services/catalogEvents';
+import { getMeta } from './database';
+
+const INVENTORY_FILTERS_KEY = 'inventoryFilters';
+
+const DEFAULT_FILTERS: InventoryFilters = {
+  search: '',
+  location: '',
+  manufacturer: '',
+  deviceType: '',
+  room: '',
+  sortBy: 'inventoryId',
+  sortDir: 'asc',
+};
+
+function parseFilters(raw: string | number | boolean): InventoryFilters {
+  if (typeof raw !== 'string' || !raw) return DEFAULT_FILTERS;
+  try {
+    return { ...DEFAULT_FILTERS, ...JSON.parse(raw) as Partial<InventoryFilters> };
+  } catch {
+    return DEFAULT_FILTERS;
+  }
+}
+
+async function activeFilters(): Promise<InventoryFilters> {
+  return parseFilters(await getMeta(INVENTORY_FILTERS_KEY, ''));
+}
 
 export function formatInventoryId(n: number): string {
   return `EQ-${String(n).padStart(4, '0')}`;
@@ -31,29 +57,39 @@ export function parseInventoryIdNumber(inventoryId: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
-export function formatDisplayNumber(inventoryId: string): string {
-  const n = parseInventoryIdNumber(inventoryId);
-  return n !== null ? String(n) : inventoryId;
+export function formatDisplayNumber(
+  device: { displayNumber: number } | string,
+): string {
+  if (typeof device === 'object') return String(device.displayNumber);
+  const n = parseInventoryIdNumber(device);
+  return n !== null ? String(n) : device;
 }
 
-/** URL segment for /devices/:id routes */
-export function deviceRouteId(inventoryId: string): string {
-  return formatDisplayNumber(inventoryId);
+/** URL segment — list position 1, 2, 3… */
+export function deviceRouteId(device: { displayNumber: number }): string {
+  return String(device.displayNumber);
 }
 
-export function resolveInventoryId(routeId: string): string {
+export async function resolveInventoryIdFromRoute(routeId: string): Promise<string> {
   const trimmed = routeId.trim();
-  const n = Number(trimmed);
-  if (Number.isFinite(n) && n > 0) return formatInventoryId(n);
   if (/^EQ-\d+$/i.test(trimmed)) return trimmed.toUpperCase();
-  throw new Error('Device not found');
+
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || n < 1 || !Number.isInteger(n)) {
+    throw new Error('Device not found');
+  }
+
+  const devices = await queryDevices(await activeFilters());
+  const device = devices[n - 1];
+  if (!device) throw new Error('Device not found');
+  return device.inventoryId;
 }
 
 export async function peekNextInventoryId(): Promise<string> {
   return peekNextInventoryIdFromServer();
 }
 
-export async function getAllDevices(): Promise<DeviceListRow[]> {
+export async function getAllDevices() {
   return fetchDevices();
 }
 
@@ -67,8 +103,18 @@ export async function getDevice(inventoryId: string): Promise<DeviceWithPhotos |
 }
 
 export async function getDeviceByRoute(routeId: string): Promise<DeviceWithPhotos | undefined> {
-  const inventoryId = resolveInventoryId(routeId);
-  return getDevice(inventoryId);
+  try {
+    const inventoryId = await resolveInventoryIdFromRoute(routeId);
+    return getDevice(inventoryId);
+  } catch {
+    return undefined;
+  }
+}
+
+export async function findDisplayNumber(inventoryId: string): Promise<number | undefined> {
+  const devices = await queryDevices(await activeFilters());
+  const idx = devices.findIndex((d) => d.inventoryId === inventoryId);
+  return idx >= 0 ? devices[idx].displayNumber : undefined;
 }
 
 type PhotoInput = {
@@ -228,7 +274,7 @@ export async function queryDevices(filters: InventoryFilters): Promise<DeviceLis
   devices.sort((a, b) =>
     compareDevices(a, b, filters.sortBy, filters.sortDir),
   );
-  return devices;
+  return devices.map((d, i) => ({ ...d, displayNumber: i + 1 }));
 }
 
 export async function getDistinctFieldValues(

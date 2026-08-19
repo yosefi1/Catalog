@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getMeta } from '../db/database';
-import { deviceRouteId, queryDevices, resolveInventoryId } from '../db/devices';
+import { deviceRouteId, queryDevices, resolveInventoryIdFromRoute } from '../db/devices';
 import { INVENTORY_FILTERS_KEY, parseStoredFilters } from './useDevices';
 
 export function useDeviceNavigation(currentRouteId: string | undefined) {
@@ -21,7 +21,7 @@ export function useDeviceNavigation(currentRouteId: string | undefined) {
       if (!routeId) return;
 
       try {
-        resolveInventoryId(routeId);
+        await resolveInventoryIdFromRoute(routeId);
       } catch {
         if (!cancelled) {
           setPrevId(undefined);
@@ -35,19 +35,14 @@ export function useDeviceNavigation(currentRouteId: string | undefined) {
       const devices = await queryDevices(filters);
       if (cancelled) return;
 
-      const currentInv = resolveInventoryId(routeId);
-      const idx = devices.findIndex((d) => d.inventoryId === currentInv);
+      const idx = devices.findIndex((d) => String(d.displayNumber) === routeId);
       if (idx < 0) {
         setPrevId(undefined);
         setNextId(undefined);
         return;
       }
-      setPrevId(idx > 0 ? deviceRouteId(devices[idx - 1].inventoryId) : undefined);
-      setNextId(
-        idx < devices.length - 1
-          ? deviceRouteId(devices[idx + 1].inventoryId)
-          : undefined,
-      );
+      setPrevId(idx > 0 ? deviceRouteId(devices[idx - 1]) : undefined);
+      setNextId(idx < devices.length - 1 ? deviceRouteId(devices[idx + 1]) : undefined);
     }
 
     void load();
