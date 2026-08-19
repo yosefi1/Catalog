@@ -8,6 +8,7 @@ import {
 import {
   deviceToRow,
   getServiceSupabase,
+  isInventoryIdDeleted,
   peekNextInventoryId,
   rowToDevice,
   signedPhotoUrl,
@@ -110,6 +111,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           .maybeSingle();
         if (exists) {
           res.status(409).json({ error: `Device ${inventoryId} already exists` });
+          return;
+        }
+        if (await isInventoryIdDeleted(supabase, inventoryId)) {
+          res.status(409).json({
+            error: `Device ${inventoryId} was deleted and cannot be re-created with the same ID.`,
+          });
           return;
         }
       }

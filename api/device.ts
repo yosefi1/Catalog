@@ -9,6 +9,8 @@ import {
   attachPhotoUrls,
   deviceToRow,
   getServiceSupabase,
+  isInventoryIdDeleted,
+  recordDeletion,
   rowToDevice,
 } from './_catalog';
 
@@ -129,6 +131,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .delete()
         .eq('inventory_id', inventoryId);
       if (error) throw error;
+      await recordDeletion(supabase, inventoryId);
       res.status(200).json({ ok: true });
       return;
     }

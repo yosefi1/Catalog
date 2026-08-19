@@ -21,6 +21,7 @@ import {
   type DeviceListRow,
 } from '../services/catalogApi';
 import { notifyCatalogChanged } from '../services/catalogEvents';
+import { markLocalDeletion } from '../services/localLegacy';
 import { getMeta } from './database';
 
 const INVENTORY_FILTERS_KEY = 'inventoryFilters';
@@ -190,6 +191,7 @@ export async function updateDeviceFields(
 
 export async function deleteDevice(inventoryId: string): Promise<void> {
   await deleteDeviceOnServer(inventoryId);
+  await markLocalDeletion(inventoryId);
   notifyCatalogChanged();
 }
 

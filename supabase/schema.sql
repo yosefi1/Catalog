@@ -30,6 +30,12 @@ create table if not exists public.photos (
 
 create index if not exists photos_inventory_id_idx on public.photos (inventory_id);
 
+-- Tombstones: prevent deleted devices from being re-uploaded from old local/browser copies.
+create table if not exists public.deleted_inventory_ids (
+  inventory_id text primary key,
+  deleted_at bigint not null
+);
+
 -- Storage bucket (also create via Dashboard → Storage if insert fails)
 insert into storage.buckets (id, name, public)
 values ('device-photos', 'device-photos', false)

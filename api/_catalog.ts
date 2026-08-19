@@ -235,3 +235,46 @@ export async function peekNextInventoryId(
   }
   return `EQ-${String(max + 1).padStart(4, '0')}`;
 }
+
+export async function recordDeletion(
+  supabase: SupabaseClient,
+  inventoryId: string,
+): Promise<void> {
+  const { error } = await supabase.from('deleted_inventory_ids').upsert({
+    inventory_id: inventoryId,
+    deleted_at: Date.now(),
+  });
+  if (error && !/deleted_inventory_ids|schema cache/i.test(error.message)) {
+    throw error;
+  }
+}
+
+export async function isInventoryIdDeleted(
+  supabase: SupabaseClient,
+  inventoryId: string,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('deleted_inventory_ids')
+    .select('inventory_id')
+    .eq('inventory_id', inventoryId)
+    .maybeSingle();
+  if (error) {
+    if (/deleted_inventory_ids|schema cache/i.test(error.message)) return false;
+    throw error;
+  }
+  return Boolean(data);
+}
+
+export async function listDeletedInventoryIds(
+  supabase: SupabaseClient,
+): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('deleted_inventory_ids')
+    .select('inventory_id')
+    .order('deleted_at');
+  if (error) {
+    if (/deleted_inventory_ids|schema cache/i.test(error.message)) return [];
+    throw error;
+  }
+  return (data ?? []).map((row) => String((row as { inventory_id: string }).inventory_id));
+}

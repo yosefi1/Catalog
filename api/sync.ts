@@ -210,6 +210,49 @@ async function attachPhotoUrls(
   );
 }
 
+async function recordDeletion(
+  supabase: SupabaseClient,
+  inventoryId: string,
+): Promise<void> {
+  const { error } = await supabase.from('deleted_inventory_ids').upsert({
+    inventory_id: inventoryId,
+    deleted_at: Date.now(),
+  });
+  if (error && !/deleted_inventory_ids|schema cache/i.test(error.message)) {
+    throw error;
+  }
+}
+
+async function isInventoryIdDeleted(
+  supabase: SupabaseClient,
+  inventoryId: string,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('deleted_inventory_ids')
+    .select('inventory_id')
+    .eq('inventory_id', inventoryId)
+    .maybeSingle();
+  if (error) {
+    if (/deleted_inventory_ids|schema cache/i.test(error.message)) return false;
+    throw error;
+  }
+  return Boolean(data);
+}
+
+async function listDeletedInventoryIds(
+  supabase: SupabaseClient,
+): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('deleted_inventory_ids')
+    .select('inventory_id')
+    .order('deleted_at');
+  if (error) {
+    if (/deleted_inventory_ids|schema cache/i.test(error.message)) return [];
+    throw error;
+  }
+  return (data ?? []).map((row) => String((row as { inventory_id: string }).inventory_id));
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   setCors(res);
   if (req.method === 'OPTIONS') {
@@ -284,7 +327,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }),
       );
 
-      res.status(200).json({ devices: devicesWithThumbs, photos });
+      const deletedInventoryIds = await listDeletedInventoryIds(supabase);
+
+      res.status(200).json({ devices: devicesWithThumbs, photos, deletedInventoryIds });
       return;
     }
 
@@ -296,6 +341,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       for (const d of devices) {
         if (!d?.inventoryId) continue;
+        if (await isInventoryIdDeleted(supabase, d.inventoryId)) continue;
         const { error } = await supabase
           .from('devices')
           .upsert(deviceToRow(d), { onConflict: 'inventory_id' });
@@ -370,6 +416,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           .delete()
           .eq('inventory_id', inventoryId);
         if (error) throw error;
+        await recordDeletion(supabase, inventoryId);
       }
       res.status(200).json({ ok: true, deleted: inventoryIds.length });
       return;

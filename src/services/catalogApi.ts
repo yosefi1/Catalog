@@ -67,11 +67,26 @@ async function apiFetch<T>(
 async function syncPull(): Promise<{
   devices: Device[];
   photos: SyncPullPhoto[];
+  deletedInventoryIds?: string[];
 }> {
   return apiFetch('/api/sync', {
     method: 'POST',
     body: JSON.stringify({ action: 'pull' }),
   });
+}
+
+export async function fetchDeletedInventoryIds(): Promise<Set<string>> {
+  try {
+    const data = await apiFetch<{ inventoryIds: string[] }>('/api/deleted-ids');
+    return new Set(data.inventoryIds);
+  } catch {
+    try {
+      const remote = await syncPull();
+      return new Set(remote.deletedInventoryIds ?? []);
+    } catch {
+      return new Set();
+    }
+  }
 }
 
 export type DeviceListRow = Device & {
@@ -212,7 +227,13 @@ export async function deleteDeviceOnServer(inventoryId: string): Promise<void> {
       `/api/device?inventoryId=${encodeURIComponent(inventoryId)}`,
       { method: 'DELETE' },
     );
-  } catch {
+  } catch (primaryError) {
+    if (
+      primaryError instanceof CatalogApiError &&
+      primaryError.status === 404
+    ) {
+      return;
+    }
     await apiFetch<{ ok: boolean }>('/api/sync', {
       method: 'POST',
       body: JSON.stringify({ action: 'delete', inventoryIds: [inventoryId] }),

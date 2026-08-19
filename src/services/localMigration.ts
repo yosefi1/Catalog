@@ -1,12 +1,21 @@
 import { db } from '../db/database';
 import {
   createDeviceOnServer,
+  fetchDeletedInventoryIds,
   fetchDevice,
   fetchDevices,
   uploadPhoto,
 } from './catalogApi';
+import {
+  clearLocalLegacyData,
+  getLocalDeletedIds,
+  markLocalDeletion,
+  removeLocalDevice,
+} from './localLegacy';
 import { deviceToForm, type PhotoType } from '../types/device';
 import { notifyCatalogChanged } from './catalogEvents';
+
+export { clearLocalLegacyData, markLocalDeletion, removeLocalDevice };
 
 export async function countLocalDevices(): Promise<number> {
   try {
@@ -26,16 +35,27 @@ export async function countLocalPhotos(): Promise<number> {
 
 export async function migrateLocalToServer(
   onProgress?: (msg: string) => void,
-): Promise<{ uploaded: number; skipped: number; photos: number }> {
+): Promise<{ uploaded: number; skipped: number; photos: number; purged: number }> {
   const localDevices = await db.devices.toArray();
   const remote = await fetchDevices();
   const remoteIds = new Set(remote.map((d) => d.inventoryId));
+  const serverDeleted = await fetchDeletedInventoryIds();
+  const localDeleted = await getLocalDeletedIds();
+  const blockedIds = new Set([...serverDeleted, ...localDeleted]);
 
   let uploaded = 0;
   let skipped = 0;
   let photos = 0;
+  let purged = 0;
 
   for (const local of localDevices) {
+    if (blockedIds.has(local.inventoryId)) {
+      await removeLocalDevice(local.inventoryId);
+      purged += 1;
+      onProgress?.(`Skip ${local.inventoryId} — deleted on server`);
+      continue;
+    }
+
     const onServer = remoteIds.has(local.inventoryId);
     const localPhotoCount =
       local.id !== undefined
@@ -54,6 +74,7 @@ export async function migrateLocalToServer(
       (!onServer || remotePhotoCount < localPhotoCount);
 
     if (!needsDevice && !needsPhotos) {
+      await removeLocalDevice(local.inventoryId);
       skipped += 1;
       onProgress?.(`Skip ${local.inventoryId} — already complete on server`);
       continue;
@@ -93,5 +114,5 @@ export async function migrateLocalToServer(
   }
 
   notifyCatalogChanged();
-  return { uploaded, skipped, photos };
+  return { uploaded, skipped, photos, purged };
 }

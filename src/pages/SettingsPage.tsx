@@ -8,7 +8,7 @@ import {
 } from '../services/backup';
 import { testConnection } from '../services/catalogApi';
 import { getAccessKey, setAccessKey } from '../services/accessKey';
-import { countLocalDevices, countLocalPhotos, migrateLocalToServer } from '../services/localMigration';
+import { countLocalDevices, countLocalPhotos, clearLocalLegacyData, migrateLocalToServer } from '../services/localMigration';
 import { exportInventoryPackage } from '../services/exportCatalog';
 import {
   getStorageStats,
@@ -126,6 +126,7 @@ export function SettingsPage() {
           <p className="muted">
             {localCount} device(s) and {localPhotoCount} photo(s) saved in this browser from before.
             Uploads missing devices and photos to the server (keeps what is already complete).
+            Devices you deleted on the server are not re-uploaded.
           </p>
           <button
             type="button"
@@ -136,12 +137,27 @@ export function SettingsPage() {
                 setAccessKey(keyDraft);
                 const result = await migrateLocalToServer((msg) => setStatus(msg));
                 setStatus(
-                  `Done — uploaded ${result.uploaded} devices, ${result.photos} photos (${result.skipped} skipped)`,
+                  `Done — uploaded ${result.uploaded} devices, ${result.photos} photos (${result.skipped} skipped, ${result.purged} deleted local copies removed)`,
                 );
               })
             }
           >
             Upload / restore to server
+          </button>
+          <button
+            type="button"
+            className="btn btn--ghost"
+            disabled={busy}
+            onClick={() =>
+              void run('Clearing old local data…', async () => {
+                const result = await clearLocalLegacyData();
+                setStatus(
+                  `Cleared ${result.devices} old local device(s) and ${result.photos} photo(s). Server data unchanged.`,
+                );
+              })
+            }
+          >
+            Clear old local data only
           </button>
         </section>
       )}
