@@ -227,13 +227,20 @@ export async function peekNextInventoryId(
 ): Promise<string> {
   const { data, error } = await supabase.from('devices').select('inventory_id');
   if (error) throw error;
+
+  const deleted = new Set(await listDeletedInventoryIds(supabase));
   let max = 0;
   for (const row of data ?? []) {
     const id = String((row as { inventory_id: string }).inventory_id);
     const m = /^EQ-(\d+)$/i.exec(id);
     if (m) max = Math.max(max, Number(m[1]));
   }
-  return `EQ-${String(max + 1).padStart(4, '0')}`;
+
+  let candidate = max + 1;
+  while (deleted.has(`EQ-${String(candidate).padStart(4, '0')}`)) {
+    candidate += 1;
+  }
+  return `EQ-${String(candidate).padStart(4, '0')}`;
 }
 
 export async function recordDeletion(

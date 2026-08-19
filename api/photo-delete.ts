@@ -1,11 +1,11 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import {
   errMessage,
+  getServiceSupabase,
   parseBody,
   requireCatalogKey,
   setCors,
-} from '../_catalog';
-import { getServiceSupabase } from '../_catalog';
+} from './_catalog';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   setCors(res);

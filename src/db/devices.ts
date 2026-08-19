@@ -136,8 +136,9 @@ type PhotoInput = {
 export async function createDevice(
   form: DeviceFormState,
   photos: PhotoInput[],
+  inventoryId?: string,
 ): Promise<Device> {
-  const device = await createDeviceOnServer(form);
+  const device = await createDeviceOnServer(form, inventoryId);
   for (const p of photos) {
     await uploadPhoto(device.inventoryId, p.photoType, p.blob, p.mimeType, {
       replaceExisting: p.photoType !== 'additional',

@@ -49,12 +49,12 @@ async function apiFetch<T>(
   } catch {
     if (text.includes('FUNCTION_INVOCATION_FAILED')) {
       throw new CatalogApiError(
-        'Server error — wait 1 minute after deploy and try again.',
+        `${path}: Server error — wait 1 minute after deploy and try again.`,
         res.status,
       );
     }
     throw new CatalogApiError(
-      `HTTP ${res.status}: ${text.slice(0, 240) || '(empty)'}`,
+      `${path}: HTTP ${res.status}: ${text.slice(0, 240) || '(empty)'}`,
       res.status,
     );
   }
@@ -196,15 +196,91 @@ export async function fetchDevice(inventoryId: string): Promise<DeviceWithPhotos
   }
 }
 
+async function syncPush(body: Record<string, unknown>): Promise<void> {
+  await apiFetch('/api/sync', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+function deviceFromForm(form: DeviceFormState, inventoryId: string): Device {
+  const now = Date.now();
+  return {
+    inventoryId,
+    deviceName: form.deviceName,
+    manufacturer: form.manufacturer,
+    model: form.model,
+    serialNumber: form.serialNumber,
+    assetTag: form.assetTag,
+    deviceType: form.deviceType,
+    location: form.location,
+    room: form.room,
+    area: form.area,
+    owner: form.owner,
+    notes: form.notes,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function nextIdFromDevices(devices: Device[], deleted: Set<string>): string {
+  let max = 0;
+  for (const d of devices) {
+    const m = /^EQ-(\d+)$/i.exec(d.inventoryId);
+    if (m) max = Math.max(max, Number(m[1]));
+  }
+  let candidate = max + 1;
+  while (deleted.has(`EQ-${String(candidate).padStart(4, '0')}`)) {
+    candidate += 1;
+  }
+  return `EQ-${String(candidate).padStart(4, '0')}`;
+}
+
+async function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      const comma = result.indexOf(',');
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('Failed to read photo'));
+    reader.readAsDataURL(blob);
+  });
+}
+
 export async function createDeviceOnServer(
   form: DeviceFormState,
   inventoryId?: string,
 ): Promise<Device> {
-  const data = await apiFetch<{ device: Device }>('/api/devices', {
-    method: 'POST',
-    body: JSON.stringify({ form, inventoryId }),
-  });
-  return data.device;
+  try {
+    const data = await apiFetch<{ device: Device }>('/api/devices', {
+      method: 'POST',
+      body: JSON.stringify({ form, inventoryId }),
+    });
+    return data.device;
+  } catch (primaryError) {
+    if (primaryError instanceof CatalogApiError && primaryError.status === 409) {
+      throw primaryError;
+    }
+    const id =
+      inventoryId ??
+      (await peekNextInventoryIdFromServer().catch(async () => {
+        const remote = await syncPull();
+        return nextIdFromDevices(
+          remote.devices,
+          new Set(remote.deletedInventoryIds ?? []),
+        );
+      }));
+    const device = deviceFromForm(form, id);
+    await syncPush({
+      action: 'push',
+      devices: [device],
+      photos: [],
+      replacePhotoInventoryIds: [],
+    });
+    return device;
+  }
 }
 
 export async function updateDeviceOnServer(
@@ -242,8 +318,16 @@ export async function deleteDeviceOnServer(inventoryId: string): Promise<void> {
 }
 
 export async function peekNextInventoryIdFromServer(): Promise<string> {
-  const data = await apiFetch<{ inventoryId: string }>('/api/next-id');
-  return data.inventoryId;
+  try {
+    const data = await apiFetch<{ inventoryId: string }>('/api/next-id');
+    return data.inventoryId;
+  } catch {
+    const remote = await syncPull();
+    return nextIdFromDevices(
+      remote.devices,
+      new Set(remote.deletedInventoryIds ?? []),
+    );
+  }
 }
 
 export async function fetchDistinctValues(
@@ -262,50 +346,85 @@ export async function uploadPhoto(
   mimeType: string,
   options?: { replaceExisting?: boolean; createdAt?: number },
 ): Promise<DevicePhoto> {
-  const prep = await apiFetch<{
-    uploadUrl: string;
-    storagePath: string;
-    mimeType: string;
-  }>('/api/photos/prepare-upload', {
-    method: 'POST',
-    body: JSON.stringify({
-      inventoryId,
-      photoType,
-      mimeType,
-      replaceExisting: options?.replaceExisting ?? photoType !== 'additional',
-    }),
-  });
+  const replaceExisting =
+    options?.replaceExisting ?? photoType !== 'additional';
+  const createdAt = options?.createdAt ?? Date.now();
 
-  const putRes = await fetch(prep.uploadUrl, {
-    method: 'PUT',
-    headers: { 'Content-Type': mimeType },
-    body: blob,
-  });
-  if (!putRes.ok) {
-    throw new CatalogApiError(
-      `Photo upload failed (HTTP ${putRes.status})`,
-      putRes.status,
-    );
+  try {
+    const prep = await apiFetch<{
+      uploadUrl: string;
+      storagePath: string;
+      mimeType: string;
+    }>('/api/photo-prepare-upload', {
+      method: 'POST',
+      body: JSON.stringify({
+        inventoryId,
+        photoType,
+        mimeType,
+        replaceExisting,
+      }),
+    });
+
+    const putRes = await fetch(prep.uploadUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': mimeType },
+      body: blob,
+    });
+    if (!putRes.ok) {
+      throw new CatalogApiError(
+        `Photo upload failed (HTTP ${putRes.status})`,
+        putRes.status,
+      );
+    }
+
+    const done = await apiFetch<{ photo: DevicePhoto }>('/api/photo-complete', {
+      method: 'POST',
+      body: JSON.stringify({
+        inventoryId,
+        storagePath: prep.storagePath,
+        photoType,
+        mimeType,
+        createdAt,
+      }),
+    });
+    return done.photo;
+  } catch {
+    const dataBase64 = await blobToBase64(blob);
+    await syncPush({
+      action: 'push',
+      devices: [],
+      photos: [
+        {
+          inventoryId,
+          photoType,
+          mimeType,
+          createdAt,
+          dataBase64,
+        },
+      ],
+      replacePhotoInventoryIds:
+        replaceExisting && photoType !== 'additional' ? [inventoryId] : [],
+    });
+    const full = await fetchDevice(inventoryId);
+    const photo =
+      full.photos.find((p) => p.photoType === photoType) ??
+      full.photos[full.photos.length - 1];
+    if (!photo) {
+      throw new CatalogApiError('Photo upload failed', 500);
+    }
+    return photo;
   }
-
-  const done = await apiFetch<{ photo: DevicePhoto }>('/api/photos/complete', {
-    method: 'POST',
-    body: JSON.stringify({
-      inventoryId,
-      storagePath: prep.storagePath,
-      photoType,
-      mimeType,
-      createdAt: options?.createdAt ?? Date.now(),
-    }),
-  });
-  return done.photo;
 }
 
 export async function deletePhotoOnServer(photoId: string): Promise<void> {
-  await apiFetch<{ ok: boolean }>(
-    `/api/photos/delete?id=${encodeURIComponent(photoId)}`,
-    { method: 'DELETE', body: '{}' },
-  );
+  try {
+    await apiFetch<{ ok: boolean }>(
+      `/api/photo-delete?id=${encodeURIComponent(photoId)}`,
+      { method: 'DELETE', body: '{}' },
+    );
+  } catch {
+    throw new CatalogApiError('Photo delete failed', 500);
+  }
 }
 
 export async function replacePhotoBlob(

@@ -1,14 +1,12 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import {
+  attachPhotoUrls,
   errMessage,
+  getServiceSupabase,
   parseBody,
   requireCatalogKey,
   setCors,
-} from '../_catalog';
-import {
-  attachPhotoUrls,
-  getServiceSupabase,
-} from '../_catalog';
+} from './_catalog';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   setCors(res);

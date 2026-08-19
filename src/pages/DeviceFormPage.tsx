@@ -212,7 +212,7 @@ function DeviceFormEditor({
       }));
 
       if (isNew || !editInventoryId) {
-        await createDevice(form, photoPayload);
+        await createDevice(form, photoPayload, inventoryId);
         await clearDraft();
         if (andNext) {
           resetFormKeepingContext({
