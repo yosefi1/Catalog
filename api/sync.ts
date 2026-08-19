@@ -422,6 +422,85 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
+    if (action === 'updateDevice') {
+      const inventoryId = String(body.inventoryId ?? '');
+      const form = body.form as Record<string, string> | undefined;
+      if (!inventoryId || !form) {
+        res.status(400).json({ error: 'inventoryId and form required' });
+        return;
+      }
+
+      const { data: existing, error: getErr } = await supabase
+        .from('devices')
+        .select('*')
+        .eq('inventory_id', inventoryId)
+        .maybeSingle();
+      if (getErr) throw getErr;
+      if (!existing) {
+        res.status(404).json({ error: 'Device not found' });
+        return;
+      }
+
+      const prev = rowToDevice(existing as Record<string, unknown>);
+      const updated: SyncDevice = {
+        ...prev,
+        deviceName: String(form.deviceName ?? ''),
+        manufacturer: String(form.manufacturer ?? ''),
+        model: String(form.model ?? ''),
+        serialNumber: String(form.serialNumber ?? ''),
+        assetTag: String(form.assetTag ?? ''),
+        deviceType: String(form.deviceType ?? ''),
+        location: String(form.location ?? ''),
+        room: String(form.room ?? ''),
+        area: String(form.area ?? ''),
+        owner: String(form.owner ?? ''),
+        notes: String(form.notes ?? ''),
+        updatedAt: Date.now(),
+      };
+
+      const { error } = await supabase
+        .from('devices')
+        .update(deviceToRow(updated))
+        .eq('inventory_id', inventoryId);
+      if (error) throw error;
+
+      res.status(200).json({ device: updated });
+      return;
+    }
+
+    if (action === 'deletePhoto') {
+      const photoId = String(body.photoId ?? '');
+      if (!photoId) {
+        res.status(400).json({ error: 'photoId required' });
+        return;
+      }
+
+      const { data: photo, error: getErr } = await supabase
+        .from('photos')
+        .select('id, inventory_id, storage_path')
+        .eq('id', photoId)
+        .maybeSingle();
+      if (getErr) throw getErr;
+      if (!photo) {
+        res.status(404).json({ error: 'Photo not found' });
+        return;
+      }
+
+      await supabase.storage
+        .from('device-photos')
+        .remove([photo.storage_path as string]);
+      const { error } = await supabase.from('photos').delete().eq('id', photoId);
+      if (error) throw error;
+
+      await supabase
+        .from('devices')
+        .update({ updated_at: Date.now() })
+        .eq('inventory_id', photo.inventory_id as string);
+
+      res.status(200).json({ ok: true });
+      return;
+    }
+
     if (action === 'getDevice') {
       const inventoryId = String(body.inventoryId ?? '');
       if (!inventoryId) {

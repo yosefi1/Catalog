@@ -1,19 +1,17 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import {
-  errMessage,
-  parseBody,
-  requireCatalogKey,
-  setCors,
-} from './_catalog';
-import {
   attachPhotoUrls,
   deviceToRow,
+  errMessage,
   getServiceSupabase,
-  isInventoryIdDeleted,
+  parseBody,
   recordDeletion,
+  requireCatalogKey,
   rowToDevice,
+  setCors,
 } from './_catalog';
 
+/** Single device GET / PUT / DELETE — flat route name avoids Vercel bundling issues with /api/device. */
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   setCors(res);
   if (req.method === 'OPTIONS') {
@@ -138,7 +136,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     res.status(405).json({ error: `Method ${req.method} not allowed` });
   } catch (e) {
-    console.error('device api error', e);
+    console.error('device-detail api error', e);
     res.status(500).json({ error: errMessage(e) });
   }
 }

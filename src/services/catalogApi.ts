@@ -142,12 +142,14 @@ export async function fetchDevices(): Promise<DeviceRowFromApi[]> {
   return devicesCache;
 }
 
+const DEVICE_DETAIL_PATH = '/api/device-detail';
+
 export async function fetchDevice(inventoryId: string): Promise<DeviceWithPhotos> {
   try {
     const data = await apiFetch<{
       device: Device;
       photos: DevicePhoto[];
-    }>(`/api/device?inventoryId=${encodeURIComponent(inventoryId)}`);
+    }>(`${DEVICE_DETAIL_PATH}?inventoryId=${encodeURIComponent(inventoryId)}`);
     return { ...data.device, photos: data.photos };
   } catch (primaryError) {
     if (
@@ -287,20 +289,34 @@ export async function updateDeviceOnServer(
   inventoryId: string,
   form: DeviceFormState,
 ): Promise<Device> {
-  const data = await apiFetch<{ device: Device }>(
-    `/api/device?inventoryId=${encodeURIComponent(inventoryId)}`,
-    {
-      method: 'PUT',
-      body: JSON.stringify({ form }),
-    },
-  );
-  return data.device;
+  try {
+    const data = await apiFetch<{ device: Device }>(
+      `${DEVICE_DETAIL_PATH}?inventoryId=${encodeURIComponent(inventoryId)}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({ form }),
+      },
+    );
+    return data.device;
+  } catch (primaryError) {
+    if (
+      primaryError instanceof CatalogApiError &&
+      primaryError.status === 404
+    ) {
+      throw primaryError;
+    }
+    const data = await apiFetch<{ device: Device }>('/api/sync', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'updateDevice', inventoryId, form }),
+    });
+    return data.device;
+  }
 }
 
 export async function deleteDeviceOnServer(inventoryId: string): Promise<void> {
   try {
     await apiFetch<{ ok: boolean }>(
-      `/api/device?inventoryId=${encodeURIComponent(inventoryId)}`,
+      `${DEVICE_DETAIL_PATH}?inventoryId=${encodeURIComponent(inventoryId)}`,
       { method: 'DELETE' },
     );
   } catch (primaryError) {
@@ -422,8 +438,14 @@ export async function deletePhotoOnServer(photoId: string): Promise<void> {
       `/api/photo-delete?id=${encodeURIComponent(photoId)}`,
       { method: 'DELETE', body: '{}' },
     );
-  } catch {
-    throw new CatalogApiError('Photo delete failed', 500);
+  } catch (primaryError) {
+    if (
+      primaryError instanceof CatalogApiError &&
+      primaryError.status === 404
+    ) {
+      return;
+    }
+    await syncPush({ action: 'deletePhoto', photoId });
   }
 }
 
