@@ -120,14 +120,23 @@ export function SettingsPage() {
         </div>
       </section>
 
-      {(localCount > 0 || localPhotoCount > 0) && (
-        <section className="settings-section">
-          <h2>Restore from this browser</h2>
-          <p className="muted">
-            {localCount} device(s) and {localPhotoCount} photo(s) saved in this browser from before.
-            Uploads missing devices and photos to the server (keeps what is already complete).
-            Devices you deleted on the server are not re-uploaded.
-          </p>
+      <section className="settings-section">
+        <h2>Old data in this browser</h2>
+        <p className="muted">
+          {localCount > 0 || localPhotoCount > 0 ? (
+            <>
+              {localCount} device(s) and {localPhotoCount} photo(s) saved in this browser from before
+              the server migration. Upload sends missing items to the server. Clear removes the old
+              local copy only — server data is unchanged.
+            </>
+          ) : (
+            <>
+              No old local devices or photos in this browser. If deleted items keep reappearing,
+              try another device (e.g. iPhone) or hard-refresh after deploy (Ctrl+F5).
+            </>
+          )}
+        </p>
+        {(localCount > 0 || localPhotoCount > 0) && (
           <button
             type="button"
             className="btn btn--primary btn--large"
@@ -144,23 +153,23 @@ export function SettingsPage() {
           >
             Upload / restore to server
           </button>
-          <button
-            type="button"
-            className="btn btn--ghost"
-            disabled={busy}
-            onClick={() =>
-              void run('Clearing old local data…', async () => {
-                const result = await clearLocalLegacyData();
-                setStatus(
-                  `Cleared ${result.devices} old local device(s) and ${result.photos} photo(s). Server data unchanged.`,
-                );
-              })
-            }
-          >
-            Clear old local data only
-          </button>
-        </section>
-      )}
+        )}
+        <button
+          type="button"
+          className={`btn btn--ghost${localCount > 0 || localPhotoCount > 0 ? '' : ' btn--large'}`}
+          disabled={busy || (localCount === 0 && localPhotoCount === 0)}
+          onClick={() =>
+            void run('Clearing old local data…', async () => {
+              const result = await clearLocalLegacyData();
+              setStatus(
+                `Cleared ${result.devices} old local device(s) and ${result.photos} photo(s). Server data unchanged.`,
+              );
+            })
+          }
+        >
+          Clear old local data only
+        </button>
+      </section>
 
       <section className="settings-section">
         <h2>Export backup (ZIP)</h2>
