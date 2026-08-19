@@ -1,51 +1,23 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { formatDisplayNumber } from '../db/devices';
-import type { Device } from '../types/device';
-import { getMainPhotoId, usePhotoUrl } from '../hooks/usePhotoUrl';
-import { deleteDeviceEverywhere } from '../services/cloudSync';
+import { deviceRouteId, deleteDevice, formatDisplayNumber } from '../db/devices';
+import type { DeviceListRow } from '../services/catalogApi';
 
 export type ThumbSize = 'small' | 'medium' | 'large';
 
-function DeviceThumb({
-  deviceId,
-  size,
-}: {
-  deviceId: number;
-  size: ThumbSize;
-}) {
-  const [photoId, setPhotoId] = useState<number | undefined>();
-  useEffect(() => {
-    void getMainPhotoId(deviceId).then(setPhotoId);
-  }, [deviceId]);
-  const url = usePhotoUrl(photoId);
-  if (!url) {
-    return <div className={`device-row__thumb placeholder size-${size}`}>No photo</div>;
-  }
-  return (
-    <img
-      className={`device-row__thumb size-${size}`}
-      src={url}
-      alt=""
-      loading="lazy"
-    />
-  );
-}
-
 interface Props {
-  devices: Device[];
+  devices: DeviceListRow[];
   thumbSize?: ThumbSize;
 }
 
 export function DeviceList({ devices, thumbSize = 'medium' }: Props) {
-  const [confirmId, setConfirmId] = useState<number | null>(null);
-  const [busyId, setBusyId] = useState<number | null>(null);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
-  async function onDelete(device: Device) {
-    if (device.id === undefined) return;
-    setBusyId(device.id);
+  async function onDelete(device: DeviceListRow) {
+    setBusyId(device.inventoryId);
     try {
-      await deleteDeviceEverywhere(device.id);
+      await deleteDevice(device.inventoryId);
       setConfirmId(null);
     } finally {
       setBusyId(null);
@@ -67,10 +39,15 @@ export function DeviceList({ devices, thumbSize = 'medium' }: Props) {
   return (
     <ul className="device-list">
       {devices.map((d) => (
-        <li key={d.id} className={`device-item device-item--${thumbSize}`}>
-          <Link className="device-row" to={`/devices/${d.id}`}>
-            {d.id !== undefined ? (
-              <DeviceThumb deviceId={d.id} size={thumbSize} />
+        <li key={d.inventoryId} className={`device-item device-item--${thumbSize}`}>
+          <Link className="device-row" to={`/devices/${deviceRouteId(d.inventoryId)}`}>
+            {d.thumbnailUrl ? (
+              <img
+                className={`device-row__thumb size-${thumbSize}`}
+                src={d.thumbnailUrl}
+                alt=""
+                loading="lazy"
+              />
             ) : (
               <div className={`device-row__thumb placeholder size-${thumbSize}`}>
                 No photo
@@ -78,33 +55,32 @@ export function DeviceList({ devices, thumbSize = 'medium' }: Props) {
             )}
             <div className="device-row__body">
               <div className="device-row__title">
-                <span className="inv-id">{formatDisplayNumber(d.inventoryId)}</span>
-                <span className="device-name">{d.deviceName || 'Untitled'}</span>
+                <span className="inv-id">#{formatDisplayNumber(d.inventoryId)}</span>
+                <strong>{d.deviceName || 'Untitled'}</strong>
               </div>
-              <div className="device-row__meta">
+              <p className="device-row__meta">
                 {[d.manufacturer, d.model].filter(Boolean).join(' · ') || '—'}
-              </div>
-              <div className="device-row__serial">
-                {d.serialNumber ? `S/N ${d.serialNumber}` : 'No serial'}
-              </div>
-              <div className="device-row__loc">{d.location || 'No location'}</div>
+              </p>
+              <p className="device-row__meta">
+                {d.location}
+                {d.room ? ` · ${d.room}` : ''}
+              </p>
             </div>
           </Link>
           <div className="device-item__actions">
-            {confirmId === d.id ? (
+            {confirmId === d.inventoryId ? (
               <>
                 <button
                   type="button"
                   className="btn btn--danger btn--small"
-                  disabled={busyId === d.id}
+                  disabled={busyId === d.inventoryId}
                   onClick={() => void onDelete(d)}
                 >
-                  {busyId === d.id ? 'Deleting…' : 'Confirm'}
+                  {busyId === d.inventoryId ? '…' : 'Confirm'}
                 </button>
                 <button
                   type="button"
-                  className="btn btn--secondary btn--small"
-                  disabled={busyId === d.id}
+                  className="btn btn--ghost btn--small"
                   onClick={() => setConfirmId(null)}
                 >
                   Cancel
@@ -114,7 +90,7 @@ export function DeviceList({ devices, thumbSize = 'medium' }: Props) {
               <button
                 type="button"
                 className="btn btn--danger btn--small"
-                onClick={() => d.id !== undefined && setConfirmId(d.id)}
+                onClick={() => setConfirmId(d.inventoryId)}
               >
                 Delete
               </button>

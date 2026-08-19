@@ -1,0 +1,163 @@
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+
+export type ApiDevice = {
+  inventoryId: string;
+  deviceName: string;
+  manufacturer: string;
+  model: string;
+  serialNumber: string;
+  assetTag: string;
+  deviceType: string;
+  location: string;
+  room: string;
+  area: string;
+  owner: string;
+  notes: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type ApiPhoto = {
+  id: string;
+  inventoryId: string;
+  photoType: string;
+  mimeType: string;
+  createdAt: number;
+  storagePath: string;
+  url: string;
+};
+
+function normalizeSupabaseUrl(raw: string): string {
+  let url = raw.trim().replace(/\/+$/, '');
+  url = url.replace(/\/rest\/v1$/i, '');
+  url = url.replace(/\/auth\/v1$/i, '');
+  url = url.replace(/\/storage\/v1$/i, '');
+  return url;
+}
+
+export function getServiceSupabase(): SupabaseClient {
+  const urlRaw = process.env.SUPABASE_URL?.trim();
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
+    process.env.SUPABASE_SECRET_KEY?.trim();
+
+  if (!urlRaw) {
+    throw new Error(
+      'Missing SUPABASE_URL in Vercel env. Example: https://xxxx.supabase.co',
+    );
+  }
+  if (!key) {
+    throw new Error(
+      'Missing SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_SECRET_KEY).',
+    );
+  }
+
+  const url = normalizeSupabaseUrl(urlRaw);
+  if (!/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(url)) {
+    throw new Error(
+      `SUPABASE_URL looks wrong: "${urlRaw}". Use https://YOURPROJECT.supabase.co`,
+    );
+  }
+
+  return createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
+export function rowToDevice(row: Record<string, unknown>): ApiDevice {
+  return {
+    inventoryId: String(row.inventory_id),
+    deviceName: String(row.device_name ?? ''),
+    manufacturer: String(row.manufacturer ?? ''),
+    model: String(row.model ?? ''),
+    serialNumber: String(row.serial_number ?? ''),
+    assetTag: String(row.asset_tag ?? ''),
+    deviceType: String(row.device_type ?? ''),
+    location: String(row.location ?? ''),
+    room: String(row.room ?? ''),
+    area: String(row.area ?? ''),
+    owner: String(row.owner ?? ''),
+    notes: String(row.notes ?? ''),
+    createdAt: Number(row.created_at) || 0,
+    updatedAt: Number(row.updated_at) || 0,
+  };
+}
+
+export function deviceToRow(d: ApiDevice) {
+  return {
+    inventory_id: d.inventoryId,
+    device_name: d.deviceName ?? '',
+    manufacturer: d.manufacturer ?? '',
+    model: d.model ?? '',
+    serial_number: d.serialNumber ?? '',
+    asset_tag: d.assetTag ?? '',
+    device_type: d.deviceType ?? '',
+    location: d.location ?? '',
+    room: d.room ?? '',
+    area: d.area ?? '',
+    owner: d.owner ?? '',
+    notes: d.notes ?? '',
+    created_at: d.createdAt,
+    updated_at: d.updatedAt,
+  };
+}
+
+export function extFromMime(mime: string): string {
+  if (mime.includes('png')) return 'png';
+  if (mime.includes('webp')) return 'webp';
+  return 'jpg';
+}
+
+export function randomPathId(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export async function signedPhotoUrl(
+  supabase: SupabaseClient,
+  storagePath: string,
+  expiresIn = 3600,
+): Promise<string> {
+  const { data, error } = await supabase.storage
+    .from('device-photos')
+    .createSignedUrl(storagePath, expiresIn);
+  if (error || !data?.signedUrl) {
+    throw new Error(`Signed URL failed (${error?.message ?? 'unknown'})`);
+  }
+  return data.signedUrl;
+}
+
+export async function attachPhotoUrls(
+  supabase: SupabaseClient,
+  rows: Array<Record<string, unknown>>,
+): Promise<ApiPhoto[]> {
+  const out: ApiPhoto[] = [];
+  for (const row of rows) {
+    const storagePath = String(row.storage_path);
+    out.push({
+      id: String(row.id),
+      inventoryId: String(row.inventory_id),
+      photoType: String(row.photo_type),
+      mimeType: String(row.mime_type ?? 'image/jpeg'),
+      createdAt: Number(row.created_at) || 0,
+      storagePath,
+      url: await signedPhotoUrl(supabase, storagePath),
+    });
+  }
+  return out;
+}
+
+export async function peekNextInventoryId(
+  supabase: SupabaseClient,
+): Promise<string> {
+  const { data, error } = await supabase
+    .from('devices')
+    .select('inventory_id');
+  if (error) throw error;
+  let max = 0;
+  for (const row of data ?? []) {
+    const id = String((row as { inventory_id: string }).inventory_id);
+    const m = /^EQ-(\d+)$/i.exec(id);
+    if (m) max = Math.max(max, Number(m[1]));
+  }
+  return `EQ-${String(max + 1).padStart(4, '0')}`;
+}

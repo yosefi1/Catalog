@@ -1,9 +1,40 @@
 import Dexie, { type EntityTable } from 'dexie';
-import type { Device, DeviceDraft, DevicePhoto } from '../types/device';
+import type { DeviceDraft, PhotoType } from '../types/device';
 
 export interface MetaRecord {
   key: string;
   value: string | number | boolean;
+}
+
+/** Legacy IndexedDB device row (for migration / drafts only). */
+export interface LocalDevice {
+  id?: number;
+  inventoryId: string;
+  deviceName: string;
+  manufacturer: string;
+  model: string;
+  serialNumber: string;
+  assetTag: string;
+  deviceType: string;
+  location: string;
+  room: string;
+  area: string;
+  owner: string;
+  notes: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface LocalDevicePhoto {
+  id?: number;
+  deviceId: number;
+  photoType: PhotoType;
+  blob: Blob;
+  mimeType: string;
+  width?: number;
+  height?: number;
+  createdAt: number;
+  ocrRawText?: string;
 }
 
 export interface SuggestionRecord {
@@ -21,8 +52,8 @@ export interface SuggestionRecord {
 }
 
 export class CatalogDatabase extends Dexie {
-  devices!: EntityTable<Device, 'id'>;
-  photos!: EntityTable<DevicePhoto, 'id'>;
+  devices!: EntityTable<LocalDevice, 'id'>;
+  photos!: EntityTable<LocalDevicePhoto, 'id'>;
   drafts!: EntityTable<DeviceDraft, 'id'>;
   suggestions!: EntityTable<SuggestionRecord, 'id'>;
   meta!: EntityTable<MetaRecord, 'key'>;

@@ -3,8 +3,8 @@ import type { DeviceDraft } from '../types/device';
 
 const NEW_DRAFT_ID = 'new';
 
-export function draftIdForDevice(deviceId?: number): string {
-  return deviceId !== undefined ? String(deviceId) : NEW_DRAFT_ID;
+export function draftIdForDevice(inventoryId?: string): string {
+  return inventoryId ?? NEW_DRAFT_ID;
 }
 
 export async function saveDraft(draft: DeviceDraft): Promise<void> {

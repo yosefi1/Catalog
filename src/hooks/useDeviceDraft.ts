@@ -10,7 +10,7 @@ import { emptyDeviceForm } from '../types/device';
 import { revokePreviewUrls } from '../services/photoCompression';
 
 interface UseDraftOptions {
-  deviceId?: number;
+  inventoryId?: string;
   initialForm?: DeviceFormState;
   initialPhotos?: DraftPhoto[];
   enabled?: boolean;
@@ -19,13 +19,13 @@ interface UseDraftOptions {
 }
 
 export function useDeviceDraft({
-  deviceId,
+  inventoryId,
   initialForm,
   initialPhotos = [],
   enabled = true,
   preferInitial = false,
 }: UseDraftOptions) {
-  const draftKey = draftIdForDevice(deviceId);
+  const draftKey = draftIdForDevice(inventoryId);
   const [form, setForm] = useState<DeviceFormState>(
     initialForm ?? emptyDeviceForm(),
   );

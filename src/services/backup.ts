@@ -1,13 +1,12 @@
 import type JSZip from 'jszip';
 import type { JSZipObject } from 'jszip';
-import { db } from '../db/database';
+import { db, type LocalDevice } from '../db/database';
 import {
-  clearAllData,
   createDevice,
-  ensureCounterPastExisting,
   getAllDevices,
 } from '../db/devices';
-import type { Device, DeviceFormState, PhotoType } from '../types/device';
+import { fetchDevice } from './catalogApi';
+import type { DeviceFormState, PhotoType } from '../types/device';
 import {
   base64ToBlob,
   blobToBase64,
@@ -116,10 +115,10 @@ export async function buildBackupPayload(): Promise<BackupPayload> {
   const backupDevices: BackupDevice[] = [];
 
   for (const device of devices) {
-    if (device.id === undefined) continue;
-    const photos = await db.photos.where('deviceId').equals(device.id).toArray();
+    const full = await fetchDevice(device.inventoryId);
     const backupPhotos: BackupPhoto[] = [];
-    for (const p of photos) {
+    for (const p of full.photos) {
+      const blob = await fetch(p.url).then((r) => r.blob());
       backupPhotos.push({
         photoType: p.photoType,
         mimeType: p.mimeType,
@@ -127,7 +126,7 @@ export async function buildBackupPayload(): Promise<BackupPayload> {
         width: p.width,
         height: p.height,
         ocrRawText: p.ocrRawText,
-        dataBase64: await blobToBase64(p.blob),
+        dataBase64: await blobToBase64(blob),
       });
     }
     backupDevices.push({
@@ -365,11 +364,19 @@ function summarize(payload: BackupPayload, sourceLabel: string): BackupPreview {
   };
 }
 
+async function clearLocalData(): Promise<void> {
+  await db.transaction('rw', db.devices, db.photos, db.drafts, async () => {
+    await db.devices.clear();
+    await db.photos.clear();
+    await db.drafts.clear();
+  });
+}
+
 async function importDeviceKeepingId(d: BackupDevice): Promise<void> {
   const now = Date.now();
   const form = deviceToForm(d);
 
-  const device: Device = {
+  const device: LocalDevice = {
     inventoryId: d.inventoryId,
     ...form,
     createdAt: d.createdAt || now,
@@ -394,11 +401,10 @@ async function importDeviceKeepingId(d: BackupDevice): Promise<void> {
 }
 
 export async function importBackupReplace(payload: BackupPayload): Promise<void> {
-  await clearAllData();
+  await clearLocalData();
   for (const d of payload.devices) {
     await importDeviceKeepingId(d);
   }
-  await ensureCounterPastExisting();
 }
 
 export async function importBackupMerge(payload: BackupPayload): Promise<{
@@ -434,6 +440,5 @@ export async function importBackupMerge(payload: BackupPayload): Promise<{
     imported++;
   }
 
-  await ensureCounterPastExisting();
   return { imported, skipped: 0, remapped };
 }

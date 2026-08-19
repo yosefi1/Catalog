@@ -1,29 +1,26 @@
-import { db, getMeta, setMeta } from './database';
 import type {
   Device,
   DeviceFormState,
   DevicePhoto,
   DeviceWithPhotos,
   InventoryFilters,
+  PhotoType,
   SortField,
 } from '../types/device';
-import { recordSuggestionsFromDevice } from './suggestions';
-
-const INVENTORY_COUNTER_KEY = 'inventoryCounter';
-
-export async function peekNextInventoryId(): Promise<string> {
-  const counter = Number(await getMeta(INVENTORY_COUNTER_KEY, 0));
-  return formatInventoryId(counter + 1);
-}
-
-export async function allocateInventoryId(): Promise<string> {
-  return db.transaction('rw', db.meta, async () => {
-    const counter = Number(await getMeta(INVENTORY_COUNTER_KEY, 0));
-    const next = counter + 1;
-    await setMeta(INVENTORY_COUNTER_KEY, next);
-    return formatInventoryId(next);
-  });
-}
+import {
+  createDeviceOnServer,
+  deleteDeviceOnServer,
+  deletePhotoOnServer,
+  fetchDevice,
+  fetchDevices,
+  fetchDistinctValues,
+  peekNextInventoryIdFromServer,
+  replacePhotoBlob,
+  updateDeviceOnServer,
+  uploadPhoto,
+  type DeviceListRow,
+} from '../services/catalogApi';
+import { notifyCatalogChanged } from '../services/catalogEvents';
 
 export function formatInventoryId(n: number): string {
   return `EQ-${String(n).padStart(4, '0')}`;
@@ -34,196 +31,135 @@ export function parseInventoryIdNumber(inventoryId: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
-/** UI label: EQ-0003 → 3. Keeps stored inventoryId unchanged. */
 export function formatDisplayNumber(inventoryId: string): string {
   const n = parseInventoryIdNumber(inventoryId);
   return n !== null ? String(n) : inventoryId;
 }
 
-/** Keep counter ahead of any existing inventory IDs (e.g. after merge import). */
-export async function ensureCounterPastExisting(): Promise<void> {
-  const devices = await db.devices.toArray();
-  const raw = await getMeta(INVENTORY_COUNTER_KEY, 0);
-  let max = typeof raw === 'number' ? raw : Number(raw) || 0;
-  for (const d of devices) {
-    const n = parseInventoryIdNumber(d.inventoryId);
-    if (n !== null && n > max) max = n;
-  }
-  await setMeta(INVENTORY_COUNTER_KEY, max);
+/** URL segment for /devices/:id routes */
+export function deviceRouteId(inventoryId: string): string {
+  return formatDisplayNumber(inventoryId);
 }
+
+export function resolveInventoryId(routeId: string): string {
+  const trimmed = routeId.trim();
+  const n = Number(trimmed);
+  if (Number.isFinite(n) && n > 0) return formatInventoryId(n);
+  if (/^EQ-\d+$/i.test(trimmed)) return trimmed.toUpperCase();
+  throw new Error('Device not found');
+}
+
+export async function peekNextInventoryId(): Promise<string> {
+  return peekNextInventoryIdFromServer();
+}
+
+export async function getAllDevices(): Promise<DeviceListRow[]> {
+  return fetchDevices();
+}
+
+export async function getDevice(inventoryId: string): Promise<DeviceWithPhotos | undefined> {
+  try {
+    return await fetchDevice(inventoryId);
+  } catch (e) {
+    if (e instanceof Error && e.message.includes('not found')) return undefined;
+    throw e;
+  }
+}
+
+export async function getDeviceByRoute(routeId: string): Promise<DeviceWithPhotos | undefined> {
+  const inventoryId = resolveInventoryId(routeId);
+  return getDevice(inventoryId);
+}
+
+type PhotoInput = {
+  id?: string;
+  photoType: PhotoType;
+  blob: Blob;
+  mimeType: string;
+  createdAt: number;
+};
 
 export async function createDevice(
   form: DeviceFormState,
-  photos: Omit<DevicePhoto, 'id' | 'deviceId'>[],
+  photos: PhotoInput[],
 ): Promise<Device> {
-  const now = Date.now();
-  const inventoryId = await allocateInventoryId();
-
-  const device: Device = {
-    inventoryId,
-    ...form,
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  const id = await db.transaction('rw', db.devices, db.photos, db.suggestions, async () => {
-    const deviceId = await db.devices.add(device);
-    if (photos.length) {
-      await db.photos.bulkAdd(
-        photos.map((p) => ({
-          ...p,
-          deviceId: deviceId as number,
-        })),
-      );
-    }
-    await recordSuggestionsFromDevice(form);
-    return deviceId as number;
-  });
-
-  return { ...device, id };
+  const device = await createDeviceOnServer(form);
+  for (const p of photos) {
+    await uploadPhoto(device.inventoryId, p.photoType, p.blob, p.mimeType, {
+      replaceExisting: p.photoType !== 'additional',
+      createdAt: p.createdAt,
+    });
+  }
+  notifyCatalogChanged();
+  return device;
 }
 
 export async function updateDevice(
-  id: number,
+  inventoryId: string,
   form: DeviceFormState,
-  photos: Array<Omit<DevicePhoto, 'id' | 'deviceId'> & { id?: number }>,
-  keepPhotoIds: number[],
+  photos: PhotoInput[],
+  keepPhotoIds: string[],
 ): Promise<Device> {
-  const existing = await db.devices.get(id);
-  if (!existing) throw new Error('Device not found');
+  const existing = await fetchDevice(inventoryId);
+  const device = await updateDeviceOnServer(inventoryId, form);
 
-  const updated: Device = {
-    ...existing,
-    ...form,
-    updatedAt: Date.now(),
-  };
+  const toDelete = existing.photos.filter(
+    (p) => p.id && !keepPhotoIds.includes(p.id),
+  );
+  for (const p of toDelete) {
+    if (p.id) await deletePhotoOnServer(p.id);
+  }
 
-  await db.transaction('rw', db.devices, db.photos, db.suggestions, async () => {
-    await db.devices.put(updated);
-
-    const currentPhotos = await db.photos.where('deviceId').equals(id).toArray();
-    const toDelete = currentPhotos.filter(
-      (p) => p.id !== undefined && !keepPhotoIds.includes(p.id),
-    );
-    if (toDelete.length) {
-      await db.photos.bulkDelete(toDelete.map((p) => p.id!));
+  for (const p of photos) {
+    if (p.id && keepPhotoIds.includes(p.id)) continue;
+    if (p.id) {
+      await replacePhotoBlob(inventoryId, p.id, p.photoType, p.blob, p.mimeType);
+    } else {
+      await uploadPhoto(inventoryId, p.photoType, p.blob, p.mimeType, {
+        replaceExisting: p.photoType !== 'additional',
+        createdAt: p.createdAt,
+      });
     }
+  }
 
-    for (const photo of photos) {
-      if (photo.id) {
-        await db.photos.update(photo.id, {
-          photoType: photo.photoType,
-          blob: photo.blob,
-          mimeType: photo.mimeType,
-          width: photo.width,
-          height: photo.height,
-          ocrRawText: photo.ocrRawText,
-        });
-      } else {
-        await db.photos.add({
-          deviceId: id,
-          photoType: photo.photoType,
-          blob: photo.blob,
-          mimeType: photo.mimeType,
-          width: photo.width,
-          height: photo.height,
-          createdAt: photo.createdAt,
-          ocrRawText: photo.ocrRawText,
-        });
-      }
-    }
-
-    await recordSuggestionsFromDevice(form);
-  });
-
-  return updated;
+  notifyCatalogChanged();
+  return device;
 }
 
-/** Update device fields only — photos unchanged. */
 export async function updateDeviceFields(
-  id: number,
+  inventoryId: string,
   form: DeviceFormState,
 ): Promise<Device> {
-  const existing = await db.devices.get(id);
-  if (!existing) throw new Error('Device not found');
-
-  const updated: Device = {
-    ...existing,
-    ...form,
-    updatedAt: Date.now(),
-  };
-
-  await db.transaction('rw', db.devices, db.suggestions, async () => {
-    await db.devices.put(updated);
-    await recordSuggestionsFromDevice(form);
-  });
-
-  return updated;
+  const device = await updateDeviceOnServer(inventoryId, form);
+  notifyCatalogChanged();
+  return device;
 }
 
-export async function deleteDevice(id: number): Promise<void> {
-  await db.transaction('rw', db.devices, db.photos, async () => {
-    await db.photos.where('deviceId').equals(id).delete();
-    await db.devices.delete(id);
-  });
-}
-
-export async function getDevice(id: number): Promise<DeviceWithPhotos | undefined> {
-  const device = await db.devices.get(id);
-  if (!device) return undefined;
-  const photos = await db.photos.where('deviceId').equals(id).toArray();
-  return { ...device, photos };
+export async function deleteDevice(inventoryId: string): Promise<void> {
+  await deleteDeviceOnServer(inventoryId);
+  notifyCatalogChanged();
 }
 
 export async function updateDevicePhotoBlob(
-  photoId: number,
-  patch: { blob: Blob; mimeType: string; width?: number; height?: number },
-  fallback?: { deviceId: number; index: number },
-): Promise<number> {
-  let id = Number(photoId);
-  let photo = Number.isFinite(id) ? await db.photos.get(id) : undefined;
-  if (!photo && fallback) {
-    const rows = await db.photos.where('deviceId').equals(fallback.deviceId).toArray();
-    photo = rows[fallback.index];
-    id = Number(photo?.id);
-  }
-  if (!photo || !Number.isFinite(id)) throw new Error('Photo not found');
-  const deviceKey = photo.deviceId;
-  const now = Date.now();
-  await db.transaction('rw', db.devices, db.photos, async () => {
-    await db.photos.update(id, {
-      blob: patch.blob,
-      mimeType: patch.mimeType,
-      width: patch.width,
-      height: patch.height,
-      createdAt: now,
-    });
-    await db.devices.update(deviceKey, { updatedAt: now });
-  });
-  return id;
+  inventoryId: string,
+  photoId: string,
+  photoType: PhotoType,
+  patch: { blob: Blob; mimeType: string },
+): Promise<DevicePhoto> {
+  const photo = await replacePhotoBlob(
+    inventoryId,
+    photoId,
+    photoType,
+    patch.blob,
+    patch.mimeType,
+  );
+  notifyCatalogChanged();
+  return photo;
 }
 
-export async function deleteDevicePhoto(photoId: number): Promise<void> {
-  const id = Number(photoId);
-  const photo = Number.isFinite(id) ? await db.photos.get(id) : undefined;
-  if (!photo) throw new Error('Photo not found');
-  const now = Date.now();
-  await db.transaction('rw', db.devices, db.photos, async () => {
-    await db.photos.delete(id);
-    await db.devices.update(photo.deviceId, { updatedAt: now });
-  });
-}
-
-export async function getAllDevices(): Promise<Device[]> {
-  return db.devices.orderBy('inventoryId').toArray();
-}
-
-export async function getDeviceCount(): Promise<number> {
-  return db.devices.count();
-}
-
-export async function getPhotoCount(): Promise<number> {
-  return db.photos.count();
+export async function deleteDevicePhoto(photoId: string): Promise<void> {
+  await deletePhotoOnServer(photoId);
+  notifyCatalogChanged();
 }
 
 function matchesSearch(device: Device, q: string): boolean {
@@ -252,19 +188,26 @@ function compareDevices(
   sortDir: 'asc' | 'desc',
 ): number {
   const dir = sortDir === 'asc' ? 1 : -1;
+  if (sortBy === 'inventoryId') {
+    const an = parseInventoryIdNumber(a.inventoryId) ?? 0;
+    const bn = parseInventoryIdNumber(b.inventoryId) ?? 0;
+    return (an - bn) * dir;
+  }
   const av = a[sortBy];
   const bv = b[sortBy];
   if (typeof av === 'number' && typeof bv === 'number') {
     return (av - bv) * dir;
   }
-  return String(av ?? '').localeCompare(String(bv ?? ''), undefined, {
-    numeric: true,
-    sensitivity: 'base',
-  }) * dir;
+  return (
+    String(av ?? '').localeCompare(String(bv ?? ''), undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    }) * dir
+  );
 }
 
-export async function queryDevices(filters: InventoryFilters): Promise<Device[]> {
-  let devices = await db.devices.toArray();
+export async function queryDevices(filters: InventoryFilters): Promise<DeviceListRow[]> {
+  let devices = await fetchDevices();
 
   if (filters.location) {
     devices = devices.filter((d) => d.location === filters.location);
@@ -282,38 +225,38 @@ export async function queryDevices(filters: InventoryFilters): Promise<Device[]>
     devices = devices.filter((d) => matchesSearch(d, filters.search.trim()));
   }
 
-  devices.sort((a, b) => compareDevices(a, b, filters.sortBy, filters.sortDir));
+  devices.sort((a, b) =>
+    compareDevices(a, b, filters.sortBy, filters.sortDir),
+  );
   return devices;
 }
 
 export async function getDistinctFieldValues(
   field: 'location' | 'manufacturer' | 'deviceType' | 'room',
 ): Promise<string[]> {
-  const devices = await db.devices.toArray();
-  const set = new Set<string>();
-  for (const d of devices) {
-    const v = d[field]?.trim();
-    if (v) set.add(v);
-  }
-  return Array.from(set).sort((a, b) => a.localeCompare(b));
+  return fetchDistinctValues(field);
 }
 
+export async function getDeviceCount(): Promise<number> {
+  const devices = await fetchDevices();
+  return devices.length;
+}
+
+export async function getPhotoCount(): Promise<number> {
+  const devices = await fetchDevices();
+  let count = 0;
+  for (const d of devices) {
+    const full = await fetchDevice(d.inventoryId);
+    count += full.photos.length;
+  }
+  return count;
+}
+
+/** Legacy no-op — data lives on server now. */
 export async function clearAllData(): Promise<void> {
-  await db.transaction(
-    'rw',
-    db.devices,
-    db.photos,
-    db.drafts,
-    db.suggestions,
-    db.meta,
-    async () => {
-      await Promise.all([
-        db.devices.clear(),
-        db.photos.clear(),
-        db.drafts.clear(),
-        db.suggestions.clear(),
-        db.meta.clear(),
-      ]);
-    },
-  );
+  throw new Error('Clear all is disabled — data is stored on the server.');
+}
+
+export async function ensureCounterPastExisting(): Promise<void> {
+  /* server allocates IDs */
 }

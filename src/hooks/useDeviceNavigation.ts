@@ -1,20 +1,14 @@
 import { useEffect, useState } from 'react';
 import { getMeta } from '../db/database';
-import { queryDevices } from '../db/devices';
+import { deviceRouteId, queryDevices, resolveInventoryId } from '../db/devices';
 import { INVENTORY_FILTERS_KEY, parseStoredFilters } from './useDevices';
 
-const FILTERS_KEY = INVENTORY_FILTERS_KEY;
-
-function parseStoredFiltersLocal(raw: string | number | boolean) {
-  return parseStoredFilters(raw);
-}
-
-export function useDeviceNavigation(currentId: number | undefined) {
-  const [prevId, setPrevId] = useState<number | undefined>();
-  const [nextId, setNextId] = useState<number | undefined>();
+export function useDeviceNavigation(currentRouteId: string | undefined) {
+  const [prevId, setPrevId] = useState<string | undefined>();
+  const [nextId, setNextId] = useState<string | undefined>();
 
   useEffect(() => {
-    if (currentId === undefined || Number.isNaN(currentId)) {
+    if (!currentRouteId) {
       setPrevId(undefined);
       setNextId(undefined);
       return;
@@ -23,25 +17,44 @@ export function useDeviceNavigation(currentId: number | undefined) {
     let cancelled = false;
 
     async function load() {
-      const stored = await getMeta(FILTERS_KEY, '');
-      const filters = parseStoredFiltersLocal(stored);
+      const routeId = currentRouteId;
+      if (!routeId) return;
+
+      try {
+        resolveInventoryId(routeId);
+      } catch {
+        if (!cancelled) {
+          setPrevId(undefined);
+          setNextId(undefined);
+        }
+        return;
+      }
+
+      const stored = await getMeta(INVENTORY_FILTERS_KEY, '');
+      const filters = parseStoredFilters(stored);
       const devices = await queryDevices(filters);
       if (cancelled) return;
-      const idx = devices.findIndex((d) => d.id === currentId);
+
+      const currentInv = resolveInventoryId(routeId);
+      const idx = devices.findIndex((d) => d.inventoryId === currentInv);
       if (idx < 0) {
         setPrevId(undefined);
         setNextId(undefined);
         return;
       }
-      setPrevId(idx > 0 ? devices[idx - 1].id : undefined);
-      setNextId(idx < devices.length - 1 ? devices[idx + 1].id : undefined);
+      setPrevId(idx > 0 ? deviceRouteId(devices[idx - 1].inventoryId) : undefined);
+      setNextId(
+        idx < devices.length - 1
+          ? deviceRouteId(devices[idx + 1].inventoryId)
+          : undefined,
+      );
     }
 
     void load();
     return () => {
       cancelled = true;
     };
-  }, [currentId]);
+  }, [currentRouteId]);
 
   return { prevId, nextId };
 }

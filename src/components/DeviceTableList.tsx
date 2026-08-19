@@ -5,20 +5,25 @@ import {
   deviceToForm,
   PHOTO_TYPE_LABELS,
   sortPhotosForDisplay,
-  type Device,
   type DeviceFormState,
   type DeviceWithPhotos,
   type SortDirection,
   type SortField,
 } from '../types/device';
-import { formatDisplayNumber, getDevice, updateDeviceFields } from '../db/devices';
-import { deleteDeviceEverywhere, syncDeviceAfterSave } from '../services/cloudSync';
+import {
+  deviceRouteId,
+  deleteDevice,
+  formatDisplayNumber,
+  getDevice,
+  updateDeviceFields,
+} from '../db/devices';
+import type { DeviceListRow } from '../services/catalogApi';
 import { formatDateShort } from '../services/utils';
 
 const COL_COUNT = 8;
 
 interface Props {
-  devices: Device[];
+  devices: DeviceListRow[];
   sortBy: SortField;
   sortDir: SortDirection;
   onSort: (field: SortField) => void;
@@ -54,14 +59,13 @@ function SortHeader({
 }
 
 function ExpandedDevice({
-  deviceId,
+  inventoryId,
   editMode,
 }: {
-  deviceId: number;
+  inventoryId: string;
   editMode: boolean;
 }) {
   const [device, setDevice] = useState<DeviceWithPhotos | null>(null);
-  const [urls, setUrls] = useState<string[]>([]);
   const [form, setForm] = useState<DeviceFormState | null>(null);
   const [lightbox, setLightbox] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
@@ -69,28 +73,16 @@ function ExpandedDevice({
   const [error, setError] = useState<string | null>(null);
 
   function load() {
-    void getDevice(deviceId).then((d) => {
+    void getDevice(inventoryId).then((d) => {
       if (!d) return;
-      const sorted = sortPhotosForDisplay(d.photos);
-      const photoUrls = sorted.map((p) => URL.createObjectURL(p.blob));
-      setDevice({ ...d, photos: sorted });
-      setUrls((prev) => {
-        prev.forEach((u) => URL.revokeObjectURL(u));
-        return photoUrls;
-      });
+      setDevice({ ...d, photos: sortPhotosForDisplay(d.photos) });
       setForm(deviceToForm(d));
     });
   }
 
   useEffect(() => {
     load();
-    return () => {
-      setUrls((prev) => {
-        prev.forEach((u) => URL.revokeObjectURL(u));
-        return [];
-      });
-    };
-  }, [deviceId]);
+  }, [inventoryId]);
 
   function patch<K extends keyof DeviceFormState>(key: K, value: DeviceFormState[K]) {
     setForm((f) => (f ? { ...f, [key]: value } : f));
@@ -102,8 +94,7 @@ function ExpandedDevice({
     setError(null);
     setSaveNote(null);
     try {
-      await updateDeviceFields(deviceId, form);
-      void syncDeviceAfterSave(deviceId);
+      await updateDeviceFields(inventoryId, form);
       setSaveNote('Saved');
       load();
       window.setTimeout(() => setSaveNote(null), 2000);
@@ -240,7 +231,7 @@ function ExpandedDevice({
                   className="table-expand__photo-btn"
                   onClick={() => setLightbox(i)}
                 >
-                  <img src={urls[i]} alt={PHOTO_TYPE_LABELS[p.photoType]} />
+                  <img src={p.url} alt={PHOTO_TYPE_LABELS[p.photoType]} />
                 </button>
                 <figcaption>{PHOTO_TYPE_LABELS[p.photoType]}</figcaption>
               </figure>
@@ -249,11 +240,11 @@ function ExpandedDevice({
         )}
 
         <div className="table-expand__actions">
-          <Link className="btn btn--primary btn--small" to={`/devices/${device.id}`}>
+          <Link className="btn btn--primary btn--small" to={`/devices/${deviceRouteId(device.inventoryId)}`}>
             Open full page
           </Link>
           {!editMode && (
-            <Link className="btn btn--secondary btn--small" to={`/devices/${device.id}/edit`}>
+            <Link className="btn btn--secondary btn--small" to={`/devices/${deviceRouteId(device.inventoryId)}/edit`}>
               Edit
             </Link>
           )}
@@ -262,8 +253,8 @@ function ExpandedDevice({
 
       {lightbox !== null && (
         <PhotoLightbox
-          images={device.photos.map((p, i) => ({
-            src: urls[i],
+          images={device.photos.map((p) => ({
+            src: p.url,
             label: PHOTO_TYPE_LABELS[p.photoType],
           }))}
           index={lightbox}
@@ -282,17 +273,16 @@ export function DeviceTableList({
   onSort,
   editAll,
 }: Props) {
-  const [expandedId, setExpandedId] = useState<number | null>(null);
-  const [confirmId, setConfirmId] = useState<number | null>(null);
-  const [busyId, setBusyId] = useState<number | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
-  async function onDelete(device: Device) {
-    if (device.id === undefined) return;
-    setBusyId(device.id);
+  async function onDelete(device: DeviceListRow) {
+    setBusyId(device.inventoryId);
     try {
-      await deleteDeviceEverywhere(device.id);
+      await deleteDevice(device.inventoryId);
       setConfirmId(null);
-      if (expandedId === device.id) setExpandedId(null);
+      if (expandedId === device.inventoryId) setExpandedId(null);
     } finally {
       setBusyId(null);
     }
@@ -330,14 +320,15 @@ export function DeviceTableList({
         </thead>
         <tbody>
           {devices.map((d) => {
-            const open = expandedId === d.id;
+            const open = expandedId === d.inventoryId;
             return (
-              <Fragment key={d.id}>
+              <Fragment key={d.inventoryId}>
                 <tr
                   className={`device-table__row ${open ? 'is-open' : ''}`}
                   onClick={() =>
-                    d.id !== undefined &&
-                    setExpandedId((cur) => (cur === d.id ? null : d.id!))
+                    setExpandedId((cur) =>
+                      cur === d.inventoryId ? null : d.inventoryId,
+                    )
                   }
                 >
                   <td className="inv-id">{formatDisplayNumber(d.inventoryId)}</td>
@@ -348,15 +339,15 @@ export function DeviceTableList({
                   <td>{d.location || '—'}</td>
                   <td className="device-table__date">{formatDateShort(d.createdAt)}</td>
                   <td className="device-table__actions" onClick={(e) => e.stopPropagation()}>
-                    {confirmId === d.id ? (
+                    {confirmId === d.inventoryId ? (
                       <>
                         <button
                           type="button"
                           className="btn btn--danger btn--small"
-                          disabled={busyId === d.id}
+                          disabled={busyId === d.inventoryId}
                           onClick={() => void onDelete(d)}
                         >
-                          {busyId === d.id ? '…' : 'Del'}
+                          {busyId === d.inventoryId ? '…' : 'Del'}
                         </button>
                         <button
                           type="button"
@@ -370,16 +361,16 @@ export function DeviceTableList({
                       <button
                         type="button"
                         className="btn btn--danger btn--small"
-                        onClick={() => d.id !== undefined && setConfirmId(d.id)}
+                        onClick={() => setConfirmId(d.inventoryId)}
                       >
                         Delete
                       </button>
                     )}
                   </td>
                 </tr>
-                {open && d.id !== undefined && (
+                {open && (
                   <tr className="device-table__expand-row">
-                    <ExpandedDevice deviceId={d.id} editMode={editAll} />
+                    <ExpandedDevice inventoryId={d.inventoryId} editMode={editAll} />
                   </tr>
                 )}
               </Fragment>

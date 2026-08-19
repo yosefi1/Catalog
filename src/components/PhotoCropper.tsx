@@ -5,7 +5,7 @@ type Handle = 'move' | 'nw' | 'ne' | 'sw' | 'se';
 
 interface Props {
   src: string;
-  source: Blob;
+  source?: Blob;
   onCancel: () => void;
   onApply: (cropped: Blob) => void | Promise<void>;
   cancelLabel?: string;
@@ -24,12 +24,32 @@ export function PhotoCropper({
   const [crop, setCrop] = useState<PixelCrop>({ x: 0, y: 0, width: 0, height: 0 });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [blob, setBlob] = useState<Blob | null>(source ?? null);
   const drag = useRef<{
     handle: Handle;
     x: number;
     y: number;
     crop: PixelCrop;
   } | null>(null);
+
+  useEffect(() => {
+    if (source) {
+      setBlob(source);
+      return;
+    }
+    let cancelled = false;
+    void fetch(src)
+      .then((r) => r.blob())
+      .then((b) => {
+        if (!cancelled) setBlob(b);
+      })
+      .catch(() => {
+        if (!cancelled) setError('Failed to load photo');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [source, src]);
 
   function measureStage() {
     const el = stageRef.current;
@@ -38,8 +58,9 @@ export function PhotoCropper({
   }
 
   useEffect(() => {
+    if (!blob) return;
     let revoked = false;
-    const url = URL.createObjectURL(source);
+    const url = URL.createObjectURL(blob);
     const img = new Image();
     img.onload = () => {
       if (revoked) return;
@@ -70,7 +91,7 @@ export function PhotoCropper({
       revoked = true;
       URL.revokeObjectURL(url);
     };
-  }, [source]);
+  }, [blob]);
 
   useEffect(() => {
     measureStage();
@@ -149,7 +170,8 @@ export function PhotoCropper({
     setBusy(true);
     setError(null);
     try {
-      const cropped = await cropBlob(source, crop);
+      if (!blob) throw new Error('Photo not loaded');
+      const cropped = await cropBlob(blob, crop);
       await onApply(cropped);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Crop failed');

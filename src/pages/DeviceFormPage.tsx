@@ -5,14 +5,15 @@ import { DeviceNavButtons } from '../components/DeviceNavButtons';
 import { SuggestInput } from '../components/SuggestInput';
 import {
   createDevice,
+  deviceRouteId,
   formatDisplayNumber,
-  getDevice,
+  getDeviceByRoute,
   peekNextInventoryId,
   updateDevice,
+  deleteDevice,
 } from '../db/devices';
 import { useDeviceDraft } from '../hooks/useDeviceDraft';
 import { uid } from '../services/utils';
-import { deleteDeviceEverywhere, syncDeviceAfterSave } from '../services/cloudSync';
 import {
   deviceToForm,
   emptyDeviceForm,
@@ -22,10 +23,15 @@ import {
   type DraftPhoto,
 } from '../types/device';
 
+async function blobFromUrl(url: string): Promise<Blob> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Failed to load photo');
+  return res.blob();
+}
+
 export function DeviceFormPage() {
-  const { id } = useParams();
-  const isNew = !id || id === 'new';
-  const deviceId = isNew ? undefined : Number(id);
+  const { id: routeId } = useParams();
+  const isNew = !routeId || routeId === 'new';
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const duplicateFrom = searchParams.get('duplicate');
@@ -34,6 +40,7 @@ export function DeviceFormPage() {
     form: DeviceFormState;
     photos: DraftPhoto[];
     inventoryId: string;
+    editInventoryId?: string;
   } | null>(null);
   const [bootError, setBootError] = useState<string | null>(null);
 
@@ -43,7 +50,7 @@ export function DeviceFormPage() {
     async function load() {
       try {
         if (duplicateFrom) {
-          const source = await getDevice(Number(duplicateFrom));
+          const source = await getDeviceByRoute(duplicateFrom);
           if (!source) throw new Error('Source device not found');
           const form = emptyDeviceForm({
             deviceName: source.deviceName,
@@ -60,23 +67,29 @@ export function DeviceFormPage() {
           return;
         }
 
-        if (deviceId !== undefined) {
-          const device = await getDevice(deviceId);
+        if (!isNew && routeId) {
+          const device = await getDeviceByRoute(routeId);
           if (!device) throw new Error('Device not found');
-          const photos: DraftPhoto[] = device.photos.map((p) => ({
-            localId: uid(),
-            photoType: p.photoType,
-            blob: p.blob,
-            mimeType: p.mimeType,
-            previewUrl: URL.createObjectURL(p.blob),
-            createdAt: p.createdAt,
-            existingPhotoId: p.id,
-          }));
+          const photos: DraftPhoto[] = await Promise.all(
+            device.photos.map(async (p) => {
+              const blob = await blobFromUrl(p.url);
+              return {
+                localId: uid(),
+                photoType: p.photoType,
+                blob,
+                mimeType: p.mimeType,
+                previewUrl: URL.createObjectURL(blob),
+                createdAt: p.createdAt,
+                existingPhotoId: p.id,
+              };
+            }),
+          );
           if (!cancelled) {
             setBoot({
               form: deviceToForm(device),
               photos,
               inventoryId: device.inventoryId,
+              editInventoryId: device.inventoryId,
             });
           }
           return;
@@ -97,7 +110,7 @@ export function DeviceFormPage() {
     return () => {
       cancelled = true;
     };
-  }, [deviceId, duplicateFrom]);
+  }, [routeId, duplicateFrom, isNew]);
 
   if (bootError) {
     return (
@@ -114,9 +127,10 @@ export function DeviceFormPage() {
 
   return (
     <DeviceFormEditor
-      key={`editor-${isNew ? 'new' : deviceId}-${duplicateFrom ?? 'x'}`}
+      key={`editor-${isNew ? 'new' : routeId}-${duplicateFrom ?? 'x'}`}
       isNew={isNew || Boolean(duplicateFrom)}
-      deviceId={duplicateFrom ? undefined : deviceId}
+      editInventoryId={duplicateFrom ? undefined : boot.editInventoryId}
+      routeId={routeId}
       initialForm={boot.form}
       initialPhotos={boot.photos}
       inventoryId={boot.inventoryId}
@@ -128,7 +142,8 @@ export function DeviceFormPage() {
 
 function DeviceFormEditor({
   isNew,
-  deviceId,
+  editInventoryId,
+  routeId,
   initialForm,
   initialPhotos,
   inventoryId: initialInventoryId,
@@ -136,7 +151,8 @@ function DeviceFormEditor({
   navigate,
 }: {
   isNew: boolean;
-  deviceId?: number;
+  editInventoryId?: string;
+  routeId?: string;
   initialForm: DeviceFormState;
   initialPhotos: DraftPhoto[];
   inventoryId: string;
@@ -153,7 +169,7 @@ function DeviceFormEditor({
     clearDraft,
     resetFormKeepingContext,
   } = useDeviceDraft({
-    deviceId,
+    inventoryId: editInventoryId,
     initialForm,
     initialPhotos,
     enabled: true,
@@ -170,7 +186,7 @@ function DeviceFormEditor({
     () =>
       photos
         .map((p) => p.existingPhotoId)
-        .filter((x): x is number => x !== undefined),
+        .filter((x): x is string => x !== undefined),
     [photos],
   );
 
@@ -193,12 +209,9 @@ function DeviceFormEditor({
         createdAt: p.createdAt,
       }));
 
-      if (isNew || deviceId === undefined) {
-        const created = await createDevice(form, photoPayload);
+      if (isNew || !editInventoryId) {
+        await createDevice(form, photoPayload);
         await clearDraft();
-        if (created.id !== undefined) {
-          void syncDeviceAfterSave(created.id);
-        }
         if (andNext) {
           resetFormKeepingContext({
             location: form.location,
@@ -214,10 +227,9 @@ function DeviceFormEditor({
           navigate('/');
         }
       } else {
-        await updateDevice(deviceId, form, photoPayload, keepIds);
+        await updateDevice(editInventoryId, form, photoPayload, keepIds);
         await clearDraft();
-        void syncDeviceAfterSave(deviceId);
-        navigate(`/devices/${deviceId}`);
+        navigate(`/devices/${deviceRouteId(editInventoryId)}`);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Save failed');
@@ -228,12 +240,16 @@ function DeviceFormEditor({
 
   async function discard() {
     await clearDraft();
-    navigate(deviceId !== undefined ? `/devices/${deviceId}` : '/');
+    navigate(
+      editInventoryId
+        ? `/devices/${deviceRouteId(editInventoryId)}`
+        : '/',
+    );
   }
 
   async function onDelete() {
-    if (deviceId === undefined) return;
-    await deleteDeviceEverywhere(deviceId);
+    if (!editInventoryId) return;
+    await deleteDevice(editInventoryId);
     await clearDraft();
     navigate('/');
   }
@@ -249,8 +265,8 @@ function DeviceFormEditor({
         </div>
         <div className="page-heading__aside">
           {restored && <span className="draft-pill">Draft restored</span>}
-          {!isNew && deviceId !== undefined && (
-            <DeviceNavButtons deviceId={deviceId} edit compact />
+          {!isNew && routeId && (
+            <DeviceNavButtons routeId={routeId} edit compact />
           )}
         </div>
       </div>
@@ -382,7 +398,7 @@ function DeviceFormEditor({
         <section className="photo-section">
           <div className="section-title">
             <h2>Photos</h2>
-            <p>Keep this open while you fill the fields</p>
+            <p>Uploaded directly to the server when you save</p>
           </div>
           <PhotoCapture photos={photos} onChange={setPhotos} />
           {photos.length > 0 && (
@@ -395,9 +411,9 @@ function DeviceFormEditor({
         </section>
       </form>
 
-      {!isNew && deviceId !== undefined && <DeviceNavButtons deviceId={deviceId} edit />}
+      {!isNew && routeId && <DeviceNavButtons routeId={routeId} edit />}
 
-      {!isNew && deviceId !== undefined && (
+      {!isNew && editInventoryId && (
         <div className="danger-zone">
           {!confirmDelete ? (
             <button

@@ -1,5 +1,5 @@
-import { db } from '../db/database';
 import { getAllDevices } from '../db/devices';
+import { fetchDevice } from './catalogApi';
 import { PHOTO_TYPE_LABELS, type PhotoType } from '../types/device';
 import {
   buildCatalogHtml,
@@ -44,11 +44,9 @@ export async function exportInventoryPackage(
   const jsonDevices: Array<Record<string, unknown>> = [];
 
   for (const device of devices) {
-    if (device.id === undefined) continue;
     onProgress?.(`Packaging ${device.inventoryId}…`);
-
-    const photos = await db.photos.where('deviceId').equals(device.id).toArray();
-    photos.sort((a, b) => a.createdAt - b.createdAt);
+    const full = await fetchDevice(device.inventoryId);
+    const photos = [...full.photos].sort((a, b) => a.createdAt - b.createdAt);
 
     const deviceFolder = images.folder(device.inventoryId);
     if (!deviceFolder) continue;
@@ -58,6 +56,7 @@ export async function exportInventoryPackage(
     let thumbPath: string | null = null;
 
     for (const photo of photos) {
+      const blob = await fetch(photo.url).then((r) => r.blob());
       const ext = extFromMime(photo.mimeType);
       let fileName: string;
       if (photo.photoType === 'additional') {
@@ -68,7 +67,7 @@ export async function exportInventoryPackage(
         fileName = `${base}.${ext}`;
       }
 
-      deviceFolder.file(fileName, photo.blob);
+      deviceFolder.file(fileName, blob);
       const relPath = `images/${device.inventoryId}/${fileName}`;
       photoRefs.push({
         photoType: photo.photoType,

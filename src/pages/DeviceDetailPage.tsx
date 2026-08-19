@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { PhotoCropper } from '../components/PhotoCropper';
 import { DeviceNavButtons } from '../components/DeviceNavButtons';
@@ -6,10 +6,16 @@ import { PhotoLightbox } from '../components/PhotoLightbox';
 import { PhotoSizeToggle } from '../components/PhotoSizeToggle';
 import type { ThumbSize } from '../components/DeviceList';
 import { getMeta, setMeta } from '../db/database';
-import { formatDisplayNumber, getDevice, updateDevicePhotoBlob, deleteDevicePhoto } from '../db/devices';
+import {
+  deviceRouteId,
+  formatDisplayNumber,
+  getDeviceByRoute,
+  resolveInventoryId,
+  updateDevicePhotoBlob,
+  deleteDevicePhoto,
+} from '../db/devices';
 import { compressPhoto } from '../services/photoCompression';
 import { rotateBlob } from '../services/cropImage';
-import { syncDeviceAfterSave } from '../services/cloudSync';
 import { useMediaDesktop } from '../hooks/useMediaDesktop';
 import { formatDate } from '../services/utils';
 import { PHOTO_TYPE_LABELS, sortPhotosForDisplay, type DeviceWithPhotos } from '../types/device';
@@ -21,16 +27,19 @@ function asThumbSize(value: string | number | boolean): ThumbSize {
   return 'medium';
 }
 
+async function blobFromUrl(url: string): Promise<Blob> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Failed to load photo');
+  return res.blob();
+}
+
 export function DeviceDetailPage() {
-  const { id } = useParams();
-  const deviceId = Number(id);
+  const { id: routeId } = useParams();
   const [device, setDevice] = useState<DeviceWithPhotos | null>(null);
-  const [urls, setUrls] = useState<string[]>([]);
-  const urlsRef = useRef<string[]>([]);
   const [lightbox, setLightbox] = useState<number | null>(null);
   const [cropIndex, setCropIndex] = useState<number | null>(null);
   const [cropBusy, setCropBusy] = useState(false);
-  const [confirmPhotoId, setConfirmPhotoId] = useState<number | null>(null);
+  const [confirmPhotoId, setConfirmPhotoId] = useState<string | null>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [gallerySize, setGallerySize] = useState<ThumbSize>('medium');
@@ -42,59 +51,55 @@ export function DeviceDetailPage() {
     );
   }, []);
 
-  function showDevice(d: DeviceWithPhotos) {
-    const sorted = sortPhotosForDisplay(d.photos);
-    const photoUrls = sorted.map((p) => URL.createObjectURL(p.blob));
-    urlsRef.current.forEach((u) => URL.revokeObjectURL(u));
-    urlsRef.current = photoUrls;
-    setDevice({ ...d, photos: sorted });
-    setUrls(photoUrls);
+  async function reload() {
+    if (!routeId) return;
+    const d = await getDeviceByRoute(routeId);
+    if (!d) {
+      setError('Device not found');
+      return;
+    }
+    setDevice({ ...d, photos: sortPhotosForDisplay(d.photos) });
   }
 
   useEffect(() => {
     let cancelled = false;
-
-    async function load() {
-      const d = await getDevice(deviceId);
-      if (cancelled) return;
-      if (!d) {
-        setError('Device not found');
-        return;
+    void (async () => {
+      try {
+        if (!routeId) throw new Error('Device not found');
+        resolveInventoryId(routeId);
+        const d = await getDeviceByRoute(routeId);
+        if (cancelled) return;
+        if (!d) {
+          setError('Device not found');
+          return;
+        }
+        setDevice({ ...d, photos: sortPhotosForDisplay(d.photos) });
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : 'Failed to load');
+        }
       }
-      showDevice(d);
-    }
-
-    void load();
+    })();
     return () => {
       cancelled = true;
-      urlsRef.current.forEach((u) => URL.revokeObjectURL(u));
-      urlsRef.current = [];
     };
-  }, [deviceId]);
+  }, [routeId]);
 
   async function applyDetailCrop(cropped: Blob) {
-    if (cropIndex === null || !device) return;
-    const wantedId = device.photos[cropIndex]?.id;
-    const photoType = device.photos[cropIndex]?.photoType ?? 'additional';
+    if (cropIndex === null || !device || !routeId) return;
+    const photo = device.photos[cropIndex];
+    if (!photo?.id) return;
     setCropBusy(true);
     try {
-      const compressed = await compressPhoto(cropped, photoType);
-      await updateDevicePhotoBlob(
-        wantedId ?? Number.NaN,
-        {
-          blob: compressed.blob,
-          mimeType: compressed.mimeType,
-          width: compressed.width,
-          height: compressed.height,
-        },
-        { deviceId, index: cropIndex },
-      );
-      const fresh = await getDevice(deviceId);
-      if (fresh) showDevice(fresh);
+      const compressed = await compressPhoto(cropped, photo.photoType);
+      await updateDevicePhotoBlob(device.inventoryId, photo.id, photo.photoType, {
+        blob: compressed.blob,
+        mimeType: compressed.mimeType,
+      });
+      await reload();
       setCropIndex(null);
-      void syncDeviceAfterSave(deviceId);
     } catch (e) {
-      throw e instanceof Error ? e : new Error('Failed to crop photo');
+      setPhotoError(e instanceof Error ? e.message : 'Failed to crop photo');
     } finally {
       setCropBusy(false);
     }
@@ -103,24 +108,17 @@ export function DeviceDetailPage() {
   async function applyDetailRotate(index: number, degrees: 90 | -90) {
     if (!device) return;
     const photo = device.photos[index];
-    if (photo?.id === undefined) return;
+    if (!photo?.id || !photo.url) return;
     setCropBusy(true);
     try {
-      const rotated = await rotateBlob(photo.blob, degrees);
+      const source = await blobFromUrl(photo.url);
+      const rotated = await rotateBlob(source, degrees);
       const compressed = await compressPhoto(rotated, photo.photoType);
-      await updateDevicePhotoBlob(
-        photo.id,
-        {
-          blob: compressed.blob,
-          mimeType: compressed.mimeType,
-          width: compressed.width,
-          height: compressed.height,
-        },
-        { deviceId, index },
-      );
-      const fresh = await getDevice(deviceId);
-      if (fresh) showDevice(fresh);
-      void syncDeviceAfterSave(deviceId);
+      await updateDevicePhotoBlob(device.inventoryId, photo.id, photo.photoType, {
+        blob: compressed.blob,
+        mimeType: compressed.mimeType,
+      });
+      await reload();
     } catch (e) {
       setPhotoError(e instanceof Error ? e.message : 'Failed to rotate photo');
     } finally {
@@ -128,16 +126,14 @@ export function DeviceDetailPage() {
     }
   }
 
-  async function onDeletePhoto(photoId: number) {
+  async function onDeletePhoto(photoId: string) {
     setCropBusy(true);
     try {
       await deleteDevicePhoto(photoId);
       setConfirmPhotoId(null);
       setPhotoError(null);
       setLightbox(null);
-      const fresh = await getDevice(deviceId);
-      if (fresh) showDevice(fresh);
-      void syncDeviceAfterSave(deviceId);
+      await reload();
     } catch (e) {
       setPhotoError(e instanceof Error ? e.message : 'Failed to delete photo');
     } finally {
@@ -157,7 +153,7 @@ export function DeviceDetailPage() {
   if (!device) return <p className="page muted">Loading…</p>;
 
   const croppingPhoto = cropIndex !== null ? device.photos[cropIndex] : undefined;
-  const croppingUrl = cropIndex !== null ? urls[cropIndex] : undefined;
+  const croppingUrl = croppingPhoto?.url;
 
   return (
     <div className="page device-detail-page">
@@ -166,7 +162,7 @@ export function DeviceDetailPage() {
           <p className="inv-id">{formatDisplayNumber(device.inventoryId)}</p>
           <h1>{device.deviceName || 'Untitled'}</h1>
         </div>
-        <DeviceNavButtons deviceId={device.id} compact />
+        <DeviceNavButtons routeId={routeId} compact />
       </div>
 
       <div className="detail-serial">
@@ -244,7 +240,7 @@ export function DeviceDetailPage() {
                 className="photo-tile__preview"
                 onClick={() => setLightbox(i)}
               >
-                <img src={urls[i]} alt={PHOTO_TYPE_LABELS[p.photoType]} />
+                <img src={p.url} alt={PHOTO_TYPE_LABELS[p.photoType]} />
                 <span className={`photo-badge photo-badge--${p.photoType}`}>
                   {PHOTO_TYPE_LABELS[p.photoType]}
                 </span>
@@ -274,8 +270,8 @@ export function DeviceDetailPage() {
                     <button
                       type="button"
                       className="btn btn--danger btn--small"
-                      disabled={cropBusy || p.id === undefined}
-                      onClick={() => p.id !== undefined && void onDeletePhoto(p.id)}
+                      disabled={cropBusy}
+                      onClick={() => void onDeletePhoto(p.id)}
                     >
                       Confirm
                     </button>
@@ -292,8 +288,8 @@ export function DeviceDetailPage() {
                   <button
                     type="button"
                     className="btn btn--danger btn--small"
-                    disabled={cropBusy || p.id === undefined}
-                    onClick={() => p.id !== undefined && setConfirmPhotoId(p.id)}
+                    disabled={cropBusy}
+                    onClick={() => setConfirmPhotoId(p.id)}
                   >
                     Delete
                   </button>
@@ -305,7 +301,7 @@ export function DeviceDetailPage() {
         </div>
       </section>
 
-      <DeviceNavButtons deviceId={device.id} />
+      <DeviceNavButtons routeId={routeId} />
 
       <div className="sticky-actions" role="toolbar" aria-label="Device actions">
         <Link className="btn btn--ghost btn--large" to="/">
@@ -313,13 +309,13 @@ export function DeviceDetailPage() {
         </Link>
         <Link
           className="btn btn--secondary btn--large"
-          to={`/devices/new?duplicate=${device.id}`}
+          to={`/devices/new?duplicate=${deviceRouteId(device.inventoryId)}`}
         >
           Duplicate
         </Link>
         <Link
           className="btn btn--primary btn--large"
-          to={`/devices/${device.id}/edit`}
+          to={`/devices/${deviceRouteId(device.inventoryId)}/edit`}
         >
           Edit
         </Link>
@@ -327,8 +323,8 @@ export function DeviceDetailPage() {
 
       {lightbox !== null && (
         <PhotoLightbox
-          images={device.photos.map((p, i) => ({
-            src: urls[i],
+          images={device.photos.map((p) => ({
+            src: p.url,
             label: PHOTO_TYPE_LABELS[p.photoType],
           }))}
           index={lightbox}
@@ -344,7 +340,6 @@ export function DeviceDetailPage() {
       {croppingPhoto && croppingUrl && (
         <PhotoCropper
           src={croppingUrl}
-          source={croppingPhoto.blob}
           onCancel={() => setCropIndex(null)}
           onApply={(blob) => applyDetailCrop(blob)}
         />

@@ -8,7 +8,7 @@ export function AppLayout() {
           <span className="app-header__mark">EQ</span>
           <div>
             <strong>Equipment Catalog</strong>
-            <p>Offline lab inventory</p>
+            <p>Server-backed lab inventory</p>
           </div>
         </div>
       </header>

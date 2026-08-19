@@ -6,17 +6,12 @@ import {
   parseBackupFile,
   type BackupPreview,
 } from '../services/backup';
-import {
-  getSyncSettings,
-  runFullSync,
-  saveSyncSettings,
-  type SyncSettings,
-} from '../services/cloudSync';
+import { testConnection } from '../services/catalogApi';
+import { getAccessKey, setAccessKey } from '../services/accessKey';
+import { countLocalDevices, migrateLocalToServer } from '../services/localMigration';
 import { exportInventoryPackage } from '../services/exportCatalog';
-import { clearAllData } from '../db/devices';
 import {
   getStorageStats,
-  requestPersistentStorage,
   type StorageStats,
 } from '../services/storageStats';
 
@@ -25,22 +20,18 @@ export function SettingsPage() {
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<BackupPreview | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState(false);
-  const [persisted, setPersisted] = useState<boolean | null>(null);
-  const [sync, setSync] = useState<SyncSettings | null>(null);
+  const [localCount, setLocalCount] = useState(0);
   const [keyDraft, setKeyDraft] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function refresh() {
     setStats(await getStorageStats());
-    const s = await getSyncSettings();
-    setSync(s);
-    setKeyDraft(s.accessKey);
+    setKeyDraft(getAccessKey());
+    setLocalCount(await countLocalDevices());
   }
 
   useEffect(() => {
     void refresh();
-    void requestPersistentStorage().then(setPersisted);
   }, []);
 
   async function run(label: string, fn: () => Promise<void>) {
@@ -60,73 +51,41 @@ export function SettingsPage() {
     <div className="page settings-page">
       <div className="page-heading">
         <h1>Data & Settings</h1>
-        <p>Local store + optional cloud sync</p>
+        <p>Server storage + tools</p>
       </div>
 
       <section className="stats-cards">
         <div className="stat-card">
           <strong>{stats?.deviceCount ?? '…'}</strong>
-          <span>Devices</span>
+          <span>Devices on server</span>
         </div>
         <div className="stat-card">
-          <strong>{stats?.photoCount ?? '…'}</strong>
-          <span>Photos</span>
+          <strong>{localCount}</strong>
+          <span>Old local devices</span>
         </div>
         <div className="stat-card">
           <strong>{stats?.approxLabel ?? '…'}</strong>
-          <span>Approx. storage</span>
+          <span>Storage</span>
         </div>
       </section>
 
-      {persisted !== null && (
-        <p className="muted small">
-          Persistent storage:{' '}
-          {persisted
-            ? 'Granted (harder for the browser to clear)'
-            : 'Not granted — enable cloud sync or export backups'}
-        </p>
-      )}
-
       <section className="settings-section">
-        <h2>Cloud sync</h2>
+        <h2>Server connection</h2>
         <p className="muted">
-          Shared secret key (no login). Same key on iPhone and PC. Data stays in
-          your Supabase project; the browser never gets the service role key.
+          All devices and photos load from Supabase via the API. Same access key on every device
+          (no login).
         </p>
 
         <label className="field">
-          <span className="field__label">Catalog sync key</span>
+          <span className="field__label">Access key</span>
           <input
             className="field__input"
             type="password"
             autoComplete="off"
             value={keyDraft}
-            placeholder="Paste the same long secret used in Vercel"
+            placeholder="CATALOG_ACCESS_KEY from Vercel"
             onChange={(e) => setKeyDraft(e.target.value)}
           />
-        </label>
-
-        <label className="sync-toggle">
-          <input
-            type="checkbox"
-            checked={Boolean(sync?.enabled)}
-            disabled={busy}
-            onChange={(e) => {
-              void (async () => {
-                await saveSyncSettings({
-                  accessKey: keyDraft,
-                  enabled: e.target.checked,
-                });
-                await refresh();
-                setStatus(
-                  e.target.checked
-                    ? 'Cloud sync enabled'
-                    : 'Cloud sync disabled',
-                );
-              })();
-            }}
-          />
-          <span>Enable automatic cloud sync</span>
         </label>
 
         <div className="confirm-row">
@@ -135,9 +94,9 @@ export function SettingsPage() {
             className="btn btn--secondary"
             disabled={busy}
             onClick={() =>
-              void run('Saving key…', async () => {
-                await saveSyncSettings({ accessKey: keyDraft });
-                setStatus('Sync key saved on this device');
+              void run('Saving…', async () => {
+                setAccessKey(keyDraft);
+                setStatus('Access key saved — reload inventory to connect');
               })
             }
           >
@@ -145,40 +104,50 @@ export function SettingsPage() {
           </button>
           <button
             type="button"
-            className="btn btn--primary btn--large"
+            className="btn btn--primary"
             disabled={busy || !keyDraft.trim()}
             onClick={() =>
-              void run('Syncing with cloud…', async () => {
-                await saveSyncSettings({
-                  accessKey: keyDraft,
-                  enabled: true,
-                });
-                const result = await runFullSync();
-                setStatus(result.message);
-                if (!result.ok) throw new Error(result.message);
+              void run('Testing…', async () => {
+                setAccessKey(keyDraft);
+                setStatus(await testConnection());
               })
             }
           >
-            Sync now
+            Test connection
           </button>
         </div>
-
-        {sync?.lastSyncAt && (
-          <p className="muted small">
-            Last sync: {new Date(sync.lastSyncAt).toLocaleString()}
-            {sync.lastMessage ? ` — ${sync.lastMessage}` : ''}
-          </p>
-        )}
-        {sync?.lastError && (
-          <p className="error-text small">{sync.lastError}</p>
-        )}
       </section>
 
+      {localCount > 0 && (
+        <section className="settings-section">
+          <h2>Upload old local data</h2>
+          <p className="muted">
+            Found {localCount} device(s) still in this browser&apos;s old local database. Upload
+            them to the server (skips devices already there).
+          </p>
+          <button
+            type="button"
+            className="btn btn--primary btn--large"
+            disabled={busy || !keyDraft.trim()}
+            onClick={() =>
+              void run('Uploading local data…', async () => {
+                setAccessKey(keyDraft);
+                const result = await migrateLocalToServer((msg) => setStatus(msg));
+                setStatus(
+                  `Done — uploaded ${result.uploaded} devices, ${result.photos} photos (${result.skipped} skipped)`,
+                );
+              })
+            }
+          >
+            Upload local data to server
+          </button>
+        </section>
+      )}
+
       <section className="settings-section">
-        <h2>Move to another device (ZIP)</h2>
+        <h2>Export backup (ZIP)</h2>
         <p className="muted">
-          Offline fallback: <strong>Export Backup</strong>, then AirDrop / Files
-          the ZIP and import on the other device.
+          Download a ZIP snapshot from the server (when connected).
         </p>
         <button
           type="button"
@@ -311,45 +280,6 @@ export function SettingsPage() {
               Merge keeps your current data. Duplicate Inventory IDs are imported
               as new EQ-#### numbers.
             </p>
-          </div>
-        )}
-      </section>
-
-      <section className="settings-section danger-zone">
-        <h2>Delete All Data</h2>
-        {!confirmDelete ? (
-          <button
-            type="button"
-            className="btn btn--danger btn--large"
-            disabled={busy}
-            onClick={() => setConfirmDelete(true)}
-          >
-            Delete All Data
-          </button>
-        ) : (
-          <div className="confirm-row">
-            <p>This permanently deletes all devices, photos, and drafts.</p>
-            <button
-              type="button"
-              className="btn btn--danger"
-              disabled={busy}
-              onClick={() =>
-                void run('Deleting…', async () => {
-                  await clearAllData();
-                  setConfirmDelete(false);
-                  setStatus('All data deleted');
-                })
-              }
-            >
-              Yes, delete everything
-            </button>
-            <button
-              type="button"
-              className="btn btn--secondary"
-              onClick={() => setConfirmDelete(false)}
-            >
-              Cancel
-            </button>
           </div>
         )}
       </section>

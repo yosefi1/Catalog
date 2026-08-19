@@ -2,13 +2,13 @@ import { Link } from 'react-router-dom';
 import { useDeviceNavigation } from '../hooks/useDeviceNavigation';
 
 interface Props {
-  deviceId: number | undefined;
+  routeId: string | undefined;
   edit?: boolean;
   compact?: boolean;
 }
 
-export function DeviceNavButtons({ deviceId, edit = false, compact = false }: Props) {
-  const { prevId, nextId } = useDeviceNavigation(deviceId);
+export function DeviceNavButtons({ routeId, edit = false, compact = false }: Props) {
+  const { prevId, nextId } = useDeviceNavigation(routeId);
   if (prevId === undefined && nextId === undefined) return null;
 
   const cls = compact ? 'device-nav-row device-nav-row--compact' : 'device-nav-row';

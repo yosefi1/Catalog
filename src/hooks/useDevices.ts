@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { liveQuery } from 'dexie';
-import { db } from '../db/database';
 import { queryDevices, getDistinctFieldValues } from '../db/devices';
-import type { Device, InventoryFilters } from '../types/device';
+import { onCatalogChanged } from '../services/catalogEvents';
+import type { InventoryFilters } from '../types/device';
+import type { DeviceListRow } from '../services/catalogApi';
 
 export const defaultFilters: InventoryFilters = {
   search: '',
@@ -27,16 +27,18 @@ export function parseStoredFilters(raw: string | number | boolean): InventoryFil
   }
 }
 
-export function useDevices(filters: InventoryFilters): Device[] | undefined {
-  const [devices, setDevices] = useState<Device[] | undefined>(undefined);
+export function useDevices(filters: InventoryFilters): DeviceListRow[] | undefined {
+  const [devices, setDevices] = useState<DeviceListRow[] | undefined>(undefined);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const observable = liveQuery(() => queryDevices(filters));
-    const sub = observable.subscribe({
-      next: (value) => setDevices(value),
-      error: (err) => console.error(err),
-    });
-    return () => sub.unsubscribe();
+  const refresh = useCallback(async () => {
+    try {
+      setDevices(await queryDevices(filters));
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load devices');
+      setDevices([]);
+    }
   }, [
     filters.search,
     filters.location,
@@ -47,6 +49,14 @@ export function useDevices(filters: InventoryFilters): Device[] | undefined {
     filters.sortDir,
   ]);
 
+  useEffect(() => {
+    void refresh();
+    return onCatalogChanged(() => {
+      void refresh();
+    });
+  }, [refresh]);
+
+  if (error) console.error(error);
   return devices;
 }
 
@@ -57,26 +67,27 @@ export function useFilterOptions() {
   const [rooms, setRooms] = useState<string[]>([]);
 
   const refresh = useCallback(async () => {
-    const [l, m, t, r] = await Promise.all([
-      getDistinctFieldValues('location'),
-      getDistinctFieldValues('manufacturer'),
-      getDistinctFieldValues('deviceType'),
-      getDistinctFieldValues('room'),
-    ]);
-    setLocations(l);
-    setManufacturers(m);
-    setDeviceTypes(t);
-    setRooms(r);
+    try {
+      const [l, m, t, r] = await Promise.all([
+        getDistinctFieldValues('location'),
+        getDistinctFieldValues('manufacturer'),
+        getDistinctFieldValues('deviceType'),
+        getDistinctFieldValues('room'),
+      ]);
+      setLocations(l);
+      setManufacturers(m);
+      setDeviceTypes(t);
+      setRooms(r);
+    } catch (e) {
+      console.error(e);
+    }
   }, []);
 
   useEffect(() => {
-    const observable = liveQuery(() => db.devices.count());
-    const sub = observable.subscribe({
-      next: () => {
-        void refresh();
-      },
+    void refresh();
+    return onCatalogChanged(() => {
+      void refresh();
     });
-    return () => sub.unsubscribe();
   }, [refresh]);
 
   return { locations, manufacturers, deviceTypes, rooms, refresh };

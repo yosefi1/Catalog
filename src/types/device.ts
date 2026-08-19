@@ -52,7 +52,6 @@ export const SINGLE_PHOTO_TYPES: PhotoType[] = [
 ];
 
 export interface Device {
-  id?: number;
   inventoryId: string;
   deviceName: string;
   manufacturer: string;
@@ -69,26 +68,26 @@ export interface Device {
   updatedAt: number;
 }
 
-export type DeviceInput = Omit<Device, 'id' | 'inventoryId' | 'createdAt' | 'updatedAt'> & {
+export type DeviceInput = Omit<Device, 'inventoryId' | 'createdAt' | 'updatedAt'> & {
   inventoryId?: string;
 };
 
 export interface DevicePhoto {
-  id?: number;
-  deviceId: number;
+  id: string;
+  inventoryId?: string;
   photoType: PhotoType;
-  /** Blob stored in IndexedDB — never localStorage */
-  blob: Blob;
   mimeType: string;
+  url: string;
   width?: number;
   height?: number;
   createdAt: number;
-  /** Optional OCR raw text for future use */
   ocrRawText?: string;
+  /** Local-only while capturing or before upload */
+  blob?: Blob;
 }
 
 export interface DeviceDraft {
-  id: string; // 'new' or device id string
+  id: string; // 'new' or inventoryId
   form: DeviceFormState;
   photos: DraftPhoto[];
   updatedAt: number;
@@ -115,8 +114,8 @@ export interface DraftPhoto {
   mimeType: string;
   previewUrl: string;
   createdAt: number;
-  /** If editing: existing DB photo id to keep/replace */
-  existingPhotoId?: number;
+  /** If editing: existing server photo id to keep/replace */
+  existingPhotoId?: string;
 }
 
 export interface DeviceWithPhotos extends Device {
@@ -125,7 +124,7 @@ export interface DeviceWithPhotos extends Device {
 
 export interface DeviceListItem extends Device {
   thumbnailUrl?: string;
-  mainPhotoId?: number;
+  mainPhotoId?: string;
 }
 
 export type SortField =
