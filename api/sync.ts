@@ -338,6 +338,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const photos = (body.photos ?? []) as SyncPhotoIn[];
       const replacePhotoInventoryIds = (body.replacePhotoInventoryIds ??
         []) as string[];
+      const replacePhotoSlots = (body.replacePhotoSlots ?? []) as Array<{
+        inventoryId: string;
+        photoType: string;
+      }>;
 
       for (const d of devices) {
         if (!d?.inventoryId) continue;
@@ -346,6 +350,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           .from('devices')
           .upsert(deviceToRow(d), { onConflict: 'inventory_id' });
         if (error) throw error;
+      }
+
+      for (const slot of replacePhotoSlots) {
+        const inventoryId = String(slot.inventoryId ?? '');
+        const photoType = String(slot.photoType ?? '');
+        if (!inventoryId || !photoType) continue;
+        const { data: old } = await supabase
+          .from('photos')
+          .select('id, storage_path')
+          .eq('inventory_id', inventoryId)
+          .eq('photo_type', photoType);
+        if (old?.length) {
+          const paths = old.map((p) => p.storage_path as string);
+          if (paths.length) {
+            await supabase.storage.from('device-photos').remove(paths);
+          }
+          await supabase
+            .from('photos')
+            .delete()
+            .eq('inventory_id', inventoryId)
+            .eq('photo_type', photoType);
+        }
       }
 
       for (const inventoryId of replacePhotoInventoryIds) {

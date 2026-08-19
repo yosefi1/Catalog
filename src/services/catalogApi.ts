@@ -418,8 +418,10 @@ export async function uploadPhoto(
           dataBase64,
         },
       ],
-      replacePhotoInventoryIds:
-        replaceExisting && photoType !== 'additional' ? [inventoryId] : [],
+      replacePhotoSlots:
+        replaceExisting && photoType !== 'additional'
+          ? [{ inventoryId, photoType }]
+          : [],
     });
     const full = await fetchDevice(inventoryId);
     const photo =
